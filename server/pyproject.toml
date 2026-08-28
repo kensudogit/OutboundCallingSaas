@@ -52,11 +52,17 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# 明示しないと pytest-asyncio が既定値の変更予告を毎回警告する。
+# 非同期フィクスチャはテストごとに閉じる（接続が別テストへ漏れない）
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 # pytest-asyncio が新しい Python で出す非推奨警告。自コードの問題ではないので隠す
 filterwarnings = [
     "ignore::DeprecationWarning:pytest_asyncio.*",
     "ignore:.*event_loop_policy.*:DeprecationWarning",
+    # starlette.testclient が httpx2 を勧める警告。fastapi 側の都合で自コードでは直せない
+    # （StarletteDeprecationWarning は UserWarning の派生。DeprecationWarning ではない）
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
 ]
 
 [tool.ruff]
@@ -65,4 +71,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC"]
-ignore = ["E501"]  # 日本語コメントで桁数が伸びるため
+ignore = [
+    "E501",  # 日本語コメントで桁数が伸びるため
+    # FastAPI の `user: AuthUser = Depends(...)` は引数デフォルトに関数呼び出しを置く定石。
+    # B008 は「デフォルト値が呼び出しごとに評価される」を嫌うが、Depends はセンチネルなので該当しない
+    "B008",
+]

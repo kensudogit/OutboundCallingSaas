@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import UTC
 
 import asyncpg
 import pytest
@@ -347,13 +348,14 @@ async def test_重複配信で通話行が増えない(admin, two_tenants):
 
 
 async def test_時刻は最初に届いた値が残る(admin, two_tenants):
+    from datetime import datetime, timedelta
+
     from app.repositories import calls as calls_repo
-    from datetime import datetime, timedelta, timezone
 
     tenant_id = two_tenants["a"]["tenant_id"]
     contact_id = two_tenants["a"]["contact_id"]
     sid = f"CA{uuid.uuid4().hex}"
-    first = datetime.now(timezone.utc)
+    first = datetime.now(UTC)
     later = first + timedelta(seconds=30)
 
     async with admin.transaction():

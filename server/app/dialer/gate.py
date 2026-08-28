@@ -72,11 +72,11 @@ class CallDecision:
     @classmethod
     def deny(
         cls, reason: BlockReason, detail: str | None = None, retry_after: datetime | None = None
-    ) -> "CallDecision":
+    ) -> CallDecision:
         return cls(False, reason, detail or _MESSAGES[reason], retry_after)
 
     @classmethod
-    def allow(cls) -> "CallDecision":
+    def allow(cls) -> CallDecision:
         return cls(True)
 
 

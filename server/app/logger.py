@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 REDACT_KEYS = frozenset(
@@ -74,7 +74,7 @@ Level = Literal["debug", "info", "warn", "error"]
 
 def _emit(level: Level, message: str, context: dict[str, Any] | None) -> None:
     line: dict[str, Any] = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "level": level,
         "msg": message,
     }

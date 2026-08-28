@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request, Response
 from twilio.twiml.voice_response import Dial, Start, VoiceResponse
@@ -120,7 +120,7 @@ async def call_status(request: Request, call_id: str | None = None) -> Response:
 
     # 時刻はサーバー時刻で埋める。upsert 側の coalesce により最初に届いた値だけが
     # 残るので、重複配信で上書きされない
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     timestamps: dict[str, object] = {}
     if status in ("QUEUED", "RINGING"):
         timestamps["started_at"] = now

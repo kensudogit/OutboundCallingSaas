@@ -89,12 +89,12 @@ class CallingWindow:
     max_attempts_per_day: int = CALLING_DEFAULTS.max_attempts_per_day
     max_attempts_total: int = CALLING_DEFAULTS.max_attempts_total
 
-    def with_timezone(self, tz: str) -> "CallingWindow":
+    def with_timezone(self, tz: str) -> CallingWindow:
         """相手側のタイムゾーンで判断するための差し替え。"""
         return replace(self, timezone=tz)
 
     @classmethod
-    def from_row(cls, row) -> "CallingWindow":
+    def from_row(cls, row) -> CallingWindow:
         return cls(
             timezone=row["calling_timezone"],
             start=row["calling_hours_start"],

@@ -24,6 +24,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from ..logger import logger
 from .session import TranscriptionSession
 
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """media ワーカーも同じ DB を触る（通話行の更新・文字起こしの保存）。
