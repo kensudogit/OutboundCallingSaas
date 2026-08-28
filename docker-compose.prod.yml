@@ -1,0 +1,106 @@
+# ============================================================================
+# ビルドしたイメージで一式を動かす（本番構成の確認用）。
+#
+#     docker compose -f docker-compose.prod.yml up --build
+#
+# ★ 本番のデプロイ設定そのものではない。「サービスをどう分けるか」を
+#   実行できる形で示すためのもの。特に media を分けている点が要（原則 3）。
+#
+# ★ migrate は 1 回だけ走らせる。api / media / jobs の起動時には流さない
+#   （複数インスタンスが同時に上がると並行実行になる）。
+# ============================================================================
+
+x-server-env: &server-env
+  APP_ENV: production
+  DATABASE_URL: postgresql://app_user:app_password@db:5432/calling
+  DATABASE_MIGRATOR_URL: postgresql://migrator:migrator_password@db:5432/calling
+  REDIS_URL: redis://redis:6379/0
+  # ★ Twilio に登録した URL と 1 文字も違ってはいけない。
+  #   トンネルや本番ドメインに合わせて必ず差し替える
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL を設定してください}
+  PUBLIC_WSS_URL: ${PUBLIC_WSS_URL:?PUBLIC_WSS_URL を設定してください}
+  JWT_SECRET: ${JWT_SECRET:?openssl rand -hex 32}
+  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:?}
+  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:?}
+  TWILIO_CALLER_ID: ${TWILIO_CALLER_ID:?}
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+  ASR_PROVIDER: ${ASR_PROVIDER:-null}
+  ASR_API_KEY: ${ASR_API_KEY:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: calling
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d calling"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  # スキーマ適用。1 回走って終わる
+  migrate:
+    build: .
+    command: ["migrate"]
+    environment: *server-env
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    build: .
+    command: ["api"]
+    environment: *server-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  # ★ API とは別サービス。同じプロセスに載せると、通話が増えるほど
+  #   API のレスポンスが悪化する。スケールの軸も違う
+  #   （API は同時ユーザー数、media は同時通話数）
+  media:
+    build: .
+    command: ["media"]
+    environment: *server-env
+    ports:
+      - "8001:8001"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  # ★ 予約の解放・録音のコピーと削除・集計。動かさないとリストが枯れる
+  jobs:
+    build: .
+    command: ["jobs"]
+    environment: *server-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    environment:
+      API_BASE_URL: http://api:8000
+      NEXT_PUBLIC_WSS_URL: ${PUBLIC_WSS_URL:?}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  db-data:

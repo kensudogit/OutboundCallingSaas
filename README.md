@@ -258,6 +258,50 @@ URL の揺れ（末尾スラッシュ・プロトコル・クエリ）を総当�
 
 ---
 
+## デプロイ
+
+イメージは 2 つ。**サーバーは 1 イメージで 3 つのプロセスを動かす。**
+
+```bash
+docker build -t calling-server .                        # サーバー
+docker build -f web/Dockerfile -t calling-web ./web     # フロント
+```
+
+| コマンド | 役割 | 備考 |
+| --- | --- | --- |
+| `api` | FastAPI（既定） | ポート `PORT`（既定 8000） |
+| `media` | 音声ワーカー | **必ず別サービス**。ポート `MEDIA_PORT`（既定 8001） |
+| `jobs` | 定期ジョブ | 予約の解放・録音のコピーと削除・集計 |
+| `migrate` | スキーマ適用 | **リリース時に一度だけ** |
+
+イメージを分けないのは、依存もコードも同じで、分けると「片方だけ古い」が起きるため。
+プロセスの分離はデプロイ側のサービス定義で行う。
+
+**`media` を `api` と同じサービスにしない**（原則 3）。Media Streams は 1 通話あたり
+毎秒 50 メッセージで、同じイベントループに載せると通話が増えるほど API が遅くなる。
+スケールの軸も違う（API は同時ユーザー数、media は同時通話数）。
+
+**`migrate` をコンテナ起動時に流さない。** 複数インスタンスが同時に上がると
+同じマイグレーションを並行実行することになる。リリースコマンドとして 1 回だけ実行する。
+
+一式を動かして確かめる場合:
+
+```bash
+PUBLIC_BASE_URL=https://xxxx.trycloudflare.com PUBLIC_WSS_URL=wss://xxxx.trycloudflare.com JWT_SECRET=$(openssl rand -hex 32) TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_CALLER_ID=+81... docker compose -f docker-compose.prod.yml up --build
+```
+
+### コンテナ化で踏んだ点
+
+| 症状 | 原因 |
+| --- | --- |
+| ビルドが Dockerfile を見つけられない | リポジトリのルートに Dockerfile が無かった |
+| `pip install .` が失敗する | `[tool.setuptools] packages` の未指定。app / tests / migrations が並んでおり自動検出できない |
+| 依存の解決に失敗する | `pyproject.toml` のピンが実在しないバージョンだった |
+| フロントだけ unhealthy になる | Next.js standalone は `HOSTNAME` を bind アドレスに使い、Docker がそこにコンテナ ID を入れる。外部公開は効くのでヘルスチェックだけ落ちる |
+| entrypoint が `no such file or directory` | 改行が CRLF。`.gitattributes` で LF に固定してある |
+
+---
+
 ## 症状から引く
 
 | 症状 | 見るところ |

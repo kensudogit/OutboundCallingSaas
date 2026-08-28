@@ -1,0 +1,35 @@
+# ビルドコンテキストを小さくし、秘密情報をイメージに入れないためのリスト。
+#
+# ★ .env をここに入れておくのは重要。COPY で誤って焼き込むと、
+#   Twilio の Auth Token（他人名義で電話をかけられる鍵、かつ Webhook 署名の
+#   検証鍵）がイメージに残る。イメージは配られるものなので取り返しがつかない。
+**/.env
+**/.env.*
+!**/.env.example
+
+# 録音（個人情報）。ローカル保管の実体が混ざらないようにする
+**/var
+**/recordings
+**/*.wav
+**/*.mp3
+
+.git
+.gitignore
+.gitattributes
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.venv
+**/venv
+**/coverage
+**/htmlcov
+**/*.log
+
+# サーバーイメージには要らないもの（web/Dockerfile は別コンテキスト）
+server/tests
+docker-compose.yml
+db/
+README.md

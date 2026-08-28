@@ -4,18 +4,22 @@ version = "0.1.0"
 description = "架電特化型SaaS のバックエンド（FastAPI + PostgreSQL + Twilio）"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.120.4",
-    "uvicorn[standard]==0.41.0",
-    "asyncpg==0.30.0",
-    "twilio==9.10.0",
-    "pyjwt==2.12.0",
-    "python-dotenv==1.2.1",
-    "pydantic==2.13.2",
-    "python-multipart==0.0.20",  # Twilio のコールバックは form
-    "redis==6.5.0",
-    "websockets==15.0.1",        # Deepgram などのストリーミング ASR 用
-    "phonenumbers==9.0.20",      # E.164 正規化。DNC 照合の前提
-    "jpholiday==1.0.2",          # 祝日の架電回避
+    "fastapi==0.138.1",
+    "uvicorn[standard]==0.52.1",
+    "asyncpg==0.31.0",
+    "twilio==9.11.0",
+    "pyjwt==2.13.0",
+    "python-dotenv==1.2.2",
+    "pydantic==2.13.4",
+    "python-multipart==0.0.32",  # Twilio のコールバックは form
+    "redis==8.0.1",
+    "websockets==16.0",        # Deepgram などのストリーミング ASR 用
+    "phonenumbers==9.0.38",      # E.164 正規化。DNC 照合の前提
+    # スキーマ適用。イメージの migrate コマンドが使う
+    "alembic==1.19.1",
+    # Alembic は同期で回す。アプリ本体は asyncpg
+    "psycopg[binary]==3.3.4",
+    "jpholiday==1.0.3",          # 祝日の架電回避
 ]
 
 # ★ 3.13 で audioop が標準ライブラリから削除されたが、このプロジェクトは
@@ -23,14 +27,27 @@ dependencies = [
 #   （Python を上げた日に文字起こしだけが静かに死ぬ、を避けるための判断）。
 #   3.14 で全テストが通ることを確認済み。
 
+# ★ パッケージを明示する。app / tests / migrations が並んでいるので、
+#   setuptools の自動検出は「どれが配布物か分からない」と言って失敗する。
+#   ここを書かないと pip install . が通らず、Docker のビルドもできない。
+[tool.setuptools]
+packages = ["app"]
+
+[tool.setuptools.package-data]
+app = ["py.typed"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project.optional-dependencies]
-storage = ["boto3==1.41.11"]
-llm = ["anthropic==0.75.0"]
+storage = ["boto3==1.43.62"]
+llm = ["anthropic==0.105.2"]
 dev = [
-    "pytest==8.4.2",
-    "pytest-asyncio==1.3.0",
+    "pytest==8.3.4",
+    "pytest-asyncio==0.24.0",
     "httpx==0.28.1",
-    "ruff==0.15.1",
+    "ruff==0.16.4",
 ]
 
 [tool.pytest.ini_options]
