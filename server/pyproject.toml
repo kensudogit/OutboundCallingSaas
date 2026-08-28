@@ -1,0 +1,51 @@
+[project]
+name = "outbound-calling-saas-server"
+version = "0.1.0"
+description = "架電特化型SaaS のバックエンド（FastAPI + PostgreSQL + Twilio）"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.120.4",
+    "uvicorn[standard]==0.41.0",
+    "asyncpg==0.30.0",
+    "twilio==9.10.0",
+    "pyjwt==2.12.0",
+    "python-dotenv==1.2.1",
+    "pydantic==2.13.2",
+    "python-multipart==0.0.20",  # Twilio のコールバックは form
+    "redis==6.5.0",
+    "websockets==15.0.1",        # Deepgram などのストリーミング ASR 用
+    "phonenumbers==9.0.20",      # E.164 正規化。DNC 照合の前提
+    "jpholiday==1.0.2",          # 祝日の架電回避
+]
+
+# ★ 3.13 で audioop が標準ライブラリから削除されたが、このプロジェクトは
+#   app/realtime/audio.py に μ-law の変換表を自前で持っているので影響を受けない
+#   （Python を上げた日に文字起こしだけが静かに死ぬ、を避けるための判断）。
+#   3.14 で全テストが通ることを確認済み。
+
+[project.optional-dependencies]
+storage = ["boto3==1.41.11"]
+llm = ["anthropic==0.75.0"]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==1.3.0",
+    "httpx==0.28.1",
+    "ruff==0.15.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# pytest-asyncio が新しい Python で出す非推奨警告。自コードの問題ではないので隠す
+filterwarnings = [
+    "ignore::DeprecationWarning:pytest_asyncio.*",
+    "ignore:.*event_loop_policy.*:DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = ["E501"]  # 日本語コメントで桁数が伸びるため

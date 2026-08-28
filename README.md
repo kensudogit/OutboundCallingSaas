@@ -1,7 +1,7 @@
 # 架電特化型SaaS
 
 アウトバウンドコール（インサイドセールス向け発信基盤）の実装。
-Python 3.12 + FastAPI / Next.js 15 + React + TypeScript / PostgreSQL 17 / Twilio。
+Python 3.12+ + FastAPI / Next.js 16 + React 19 + TypeScript / PostgreSQL 17 / Twilio。
 
 リスト管理 → 発信 → 通話中のリアルタイム文字起こしとサジェスト → 録音 → 結果登録 → KPI まで。
 
@@ -48,7 +48,12 @@ Next.js は BFF であって音声を通さない。WebRTC も WSS もブラウ�
 
 アプリの `WHERE tenant_id = ?` に頼らない。全テーブルで `force row level security` +
 `with check`、接続ごとに `SET LOCAL app.tenant_id`。
-未設定の接続からは**1 行も見えない**（`current_setting(..., true)` が NULL を返す）。
+未設定の接続からは**1 行も見えない**。
+
+判定は `current_tenant_id()` に閉じ込めてある。`nullif` を挟んでいるのが要で、
+`SET LOCAL` を抜けた後の設定値は NULL ではなく**空文字**になり、素の
+`current_setting(...)::uuid` は `''::uuid` で例外を投げる。データは漏れないが
+500 エラーになり、接続を使い回したかどうかで挙動が変わる。プールを使う以上必ず踏む。
 
 ### 5. 録音と文字起こしは個人情報として設計する
 
@@ -132,8 +137,21 @@ cd web && npm run dev                                                       # �
 cd server && python -m pytest
 ```
 
-50 件。関門の全分岐、署名検証（公式実装との一致を含む）、状態の単調更新、
-μ-law 変換と発話区間の検出。**Twilio にも DB にも接続しない**ので CI に載る。
+78 件。うち 64 件は **Twilio にも DB にも接続しない**（関門の全分岐、署名検証、
+状態の単調更新、μ-law 変換と発話区間の検出、Webhook ルートの署名拒否）。
+
+残り 14 件は実 DB に対する統合検証で、**コードではなく DB が守っているか**を見る。
+`docker compose up -d` していなければ自動でスキップされる。
+
+| 検証 | 落ちたら何が壊れているか |
+| --- | --- |
+| テナント未設定で 0 行 | RLS が効いていない（他社データが見える） |
+| 他テナント ID の INSERT が失敗 | `with check` の書き忘れ |
+| トランザクションを抜けたら 0 行 | `SET`/`SET LOCAL` の取り違え、`nullif` 漏れ |
+| 2 接続が別々の相手を取る | `SKIP LOCKED` が効かず二重発信 |
+| スキップした相手が戻らない | 担当者が前に進めない |
+| completed が先でも巻き戻らない | 通話時間の集計が壊れる |
+| DNC を app_user が消せない | 断った相手への再架電 |
 
 ### Twilio なしで通話イベントを流す
 

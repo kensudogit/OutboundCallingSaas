@@ -1,0 +1,43 @@
+# ============================================================================
+# ★ .env を確実に外す。架電 SaaS の .env には Twilio の Auth Token が入る。
+#   これは「他人名義で電話をかけられる鍵」であり、かつ Webhook 署名の検証鍵
+#   でもある。漏れると偽の通話イベントを流し込まれる。
+# ============================================================================
+.env
+.env.*
+!.env.example
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+htmlcov/
+.coverage
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# カバレッジ・ログ
+coverage/
+*.log
+
+# 録音の一時保管先（万一ローカルに落とした場合）
+# ★ 通話録音は個人情報。リポジトリに入れない
+recordings/
+*.wav
+*.mp3
+
+# エディタ・OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

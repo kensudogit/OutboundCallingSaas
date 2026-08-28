@@ -1,0 +1,216 @@
+"""環境変数の一元管理と起動時検証（Phase 1）。
+
+★ 検証は「最初の 1 件で投げる」のではなく、全部集めてから一度に投げる。
+  コンテナデプロイでは 1 件直すたびに再デプロイが必要になるため、
+  6 個足りなければ 6 回デプロイし直すことになってしまう。
+
+★ 架電特有で落としやすいのは PUBLIC_BASE_URL の形。Twilio に登録した URL と
+  1 文字でも違うと署名が一致せず、Webhook が全件 403 になる。ここは値の
+  存在だけでなく形まで見る。
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from dataclasses import dataclass, field
+from datetime import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_problems: list[str] = []
+
+
+def _required(name: str, hint: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        _problems.append(f"{name} が設定されていません — {hint}")
+        return ""
+    return value
+
+
+def _optional(name: str, fallback: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    return value or fallback
+
+
+def _int(name: str, fallback: int) -> int:
+    raw = _optional(name, str(fallback))
+    try:
+        return int(raw)
+    except ValueError:
+        _problems.append(f"{name} は整数である必要があります。実際の値: {raw!r}")
+        return fallback
+
+
+def _bool(name: str, fallback: bool) -> bool:
+    return _optional(name, "true" if fallback else "false").lower() == "true"
+
+
+def _time(name: str, fallback: str) -> time:
+    raw = _optional(name, fallback)
+    try:
+        hh, mm = raw.split(":")
+        return time(int(hh), int(mm))
+    except (ValueError, TypeError):
+        _problems.append(f"{name} は HH:MM 形式。実際の値: {raw!r}")
+        return time(9, 0)
+
+
+# ---------------------------------------------------------------- 読み取り
+
+APP_ENV = _optional("APP_ENV", "development")
+PORT = _int("PORT", 8000)
+MEDIA_PORT = _int("MEDIA_PORT", 8001)
+
+PUBLIC_BASE_URL = _required("PUBLIC_BASE_URL", "Twilio から届く公開 URL。署名検証の入力になる")
+PUBLIC_WSS_URL = _optional("PUBLIC_WSS_URL", PUBLIC_BASE_URL.replace("https://", "wss://"))
+
+DATABASE_URL = _required("DATABASE_URL", "アプリ用。RLS が効くロールで接続する")
+DATABASE_MIGRATOR_URL = _optional("DATABASE_MIGRATOR_URL", "")
+REDIS_URL = _optional("REDIS_URL", "redis://localhost:6381/0")
+
+JWT_SECRET = _required("JWT_SECRET", "openssl rand -hex 32")
+JWT_TTL_MINUTES = _int("JWT_TTL_MINUTES", 120)
+
+TWILIO_ACCOUNT_SID = _required("TWILIO_ACCOUNT_SID", "Console のダッシュボード。AC で始まる")
+TWILIO_AUTH_TOKEN = _required("TWILIO_AUTH_TOKEN", "★ 署名検証に使う。API Key Secret とは別物")
+TWILIO_CALLER_ID = _required("TWILIO_CALLER_ID", "購入済みまたは検証済みの発信者番号（E.164）")
+TWILIO_API_KEY_SID = _optional("TWILIO_API_KEY_SID", "")
+TWILIO_API_KEY_SECRET = _optional("TWILIO_API_KEY_SECRET", "")
+TWILIO_TWIML_APP_SID = _optional("TWILIO_TWIML_APP_SID", "")
+TWILIO_MACHINE_DETECTION = _optional("TWILIO_MACHINE_DETECTION", "DetectMessageEnd")
+
+CALLING_TIMEZONE = _optional("CALLING_TIMEZONE", "Asia/Tokyo")
+CALLING_HOURS_START = _time("CALLING_HOURS_START", "09:00")
+CALLING_HOURS_END = _time("CALLING_HOURS_END", "20:00")
+CALLING_EXCLUDE_HOLIDAYS = _bool("CALLING_EXCLUDE_HOLIDAYS", True)
+MAX_ATTEMPTS_PER_DAY = _int("MAX_ATTEMPTS_PER_DAY", 3)
+MAX_ATTEMPTS_TOTAL = _int("MAX_ATTEMPTS_TOTAL", 8)
+RESERVATION_TTL_SECONDS = _int("RESERVATION_TTL_SECONDS", 600)
+# ★ 結果登録の直後に次を鳴らすと担当者が息を継げない。間隔を挟み、
+#   その間はキャンセルできるようにする
+AUTO_DIAL_DELAY_SEC = _int("AUTO_DIAL_DELAY_SEC", 3)
+AGENT_HEARTBEAT_TIMEOUT_SECONDS = _int("AGENT_HEARTBEAT_TIMEOUT_SECONDS", 60)
+RECENT_CALL_WINDOW_SECONDS = _int("RECENT_CALL_WINDOW_SECONDS", 60)
+
+# 障害時に発信だけを止める。アプリ全体を巻き戻さずに済む
+DIALING_ENABLED = _bool("DIALING_ENABLED", True)
+
+ASR_PROVIDER = _optional("ASR_PROVIDER", "null")
+ASR_API_KEY = _optional("ASR_API_KEY", "")
+ASR_LANGUAGE = _optional("ASR_LANGUAGE", "ja-JP")
+ASR_SAMPLE_RATE = _int("ASR_SAMPLE_RATE", 8000)
+SILENCE_THRESHOLD_MS = _int("SILENCE_THRESHOLD_MS", 700)
+MIN_UTTERANCE_MS = _int("MIN_UTTERANCE_MS", 800)
+
+LLM_API_KEY = _optional("LLM_API_KEY", "")
+LLM_MODEL = _optional("LLM_MODEL", "claude-sonnet-5")
+LLM_MAX_TOKENS = _int("LLM_MAX_TOKENS", 120)
+
+RECORDING_RETENTION_DAYS = _int("RECORDING_RETENTION_DAYS", 365)
+
+CORS_ORIGIN = _optional("CORS_ORIGIN", "http://localhost:3000")
+
+# ---------------------------------------------------------------- 値の検証
+
+if PUBLIC_BASE_URL:
+    if not PUBLIC_BASE_URL.startswith("https://") and APP_ENV != "development":
+        _problems.append(
+            f"PUBLIC_BASE_URL は https:// で始まる必要があります（Twilio の要求）。"
+            f"実際の値: {PUBLIC_BASE_URL}"
+        )
+    if PUBLIC_BASE_URL.endswith("/"):
+        _problems.append(
+            "PUBLIC_BASE_URL の末尾にスラッシュがあります。"
+            "署名対象の URL がずれ、Webhook が全件 403 になります"
+        )
+
+if TWILIO_ACCOUNT_SID and not TWILIO_ACCOUNT_SID.startswith("AC"):
+    _problems.append(
+        f'TWILIO_ACCOUNT_SID は "AC" で始まります。API Key SID（SK...）と'
+        f"取り違えていませんか。実際の値の先頭: {TWILIO_ACCOUNT_SID[:8]}…"
+    )
+
+if TWILIO_AUTH_TOKEN and TWILIO_AUTH_TOKEN == TWILIO_API_KEY_SECRET:
+    _problems.append(
+        "TWILIO_AUTH_TOKEN と TWILIO_API_KEY_SECRET が同じ値です（別物です）。"
+        "署名検証には Auth Token を使います"
+    )
+
+if TWILIO_CALLER_ID and not TWILIO_CALLER_ID.startswith("+"):
+    _problems.append(
+        f"TWILIO_CALLER_ID は E.164 形式（+81…）にしてください。実際の値: {TWILIO_CALLER_ID}"
+    )
+
+try:
+    ZoneInfo(CALLING_TIMEZONE)
+except ZoneInfoNotFoundError:
+    _problems.append(f"CALLING_TIMEZONE が不正です: {CALLING_TIMEZONE}")
+
+if CALLING_HOURS_START >= CALLING_HOURS_END:
+    _problems.append(
+        f"CALLING_HOURS_START({CALLING_HOURS_START}) が "
+        f"CALLING_HOURS_END({CALLING_HOURS_END}) 以降になっています"
+    )
+
+if ASR_PROVIDER not in ("null", "deepgram", "google", "azure"):
+    _problems.append(f"ASR_PROVIDER は null / deepgram / google / azure のいずれか: {ASR_PROVIDER}")
+if ASR_PROVIDER != "null" and not ASR_API_KEY:
+    _problems.append(f"ASR_PROVIDER={ASR_PROVIDER} ですが ASR_API_KEY が空です")
+
+# ---------------------------------------------------------------- 報告
+
+if _problems:
+    lines = [
+        "",
+        "=" * 74,
+        f" 起動できません: 設定に {len(_problems)} 件の問題があります",
+        "=" * 74,
+        "",
+        *(f"  - {p}" for p in _problems),
+        "",
+        "ローカル開発 : server/.env.example をコピーして server/.env を作り、値を入れる",
+        "コンテナ/PaaS: 環境変数として設定する（.env ファイルは読まれない）",
+        "",
+        "★ PUBLIC_BASE_URL は Twilio Console に登録した URL と 1 文字も違ってはいけません。",
+        "  トンネルの URL が変わったら、この変数と Twilio 側の両方を更新してください。",
+        "  片方だけだと署名が一致せず、Webhook が全件 403 になります。",
+        "=" * 74,
+        "",
+    ]
+    # 一覧は stderr に直接出す。例外の message に入れるとスタックトレースに埋もれる
+    print("\n".join(lines), file=sys.stderr)
+    raise RuntimeError(f"設定に {len(_problems)} 件の問題があります（詳細は上のログ）")
+
+
+@dataclass(frozen=True)
+class CallingWindowDefaults:
+    """テナント設定の既定値。実際の値は tenants テーブルが持つ。"""
+
+    timezone: str = CALLING_TIMEZONE
+    start: time = CALLING_HOURS_START
+    end: time = CALLING_HOURS_END
+    exclude_holidays: bool = CALLING_EXCLUDE_HOLIDAYS
+    weekdays: frozenset[int] = field(default_factory=lambda: frozenset({0, 1, 2, 3, 4}))
+    max_attempts_per_day: int = MAX_ATTEMPTS_PER_DAY
+    max_attempts_total: int = MAX_ATTEMPTS_TOTAL
+
+
+CALLING_DEFAULTS = CallingWindowDefaults()
+
+
+def public_url(path: str) -> str:
+    """署名検証と Twilio へ渡す URL を組み立てる唯一の関数。
+
+    ★ request.url から組み立てない。リバースプロキシの後ろでは http:// や
+      内部ホスト名になり、Twilio が署名に使った公開 URL と一致しなくなる。
+    """
+    return f"{PUBLIC_BASE_URL.rstrip('/')}{path}"
+
+
+def public_wss(path: str) -> str:
+    return f"{PUBLIC_WSS_URL.rstrip('/')}{path}"

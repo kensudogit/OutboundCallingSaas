@@ -1,0 +1,12 @@
+# 改行は LF に正規化する。
+# ★ Windows で編集したファイルが CRLF のままコンテナに入ると、
+#   シェルスクリプトや entrypoint が "no such file or directory" で落ちる。
+#   原因が改行だと気付くまで時間を溶かすので、リポジトリ側で固定しておく。
+* text=auto eol=lf
+
+# バイナリ
+*.png binary
+*.jpg binary
+*.ico binary
+*.wav binary
+*.mp3 binary

@@ -1,0 +1,103 @@
+:root {
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --border: #e2e5ea;
+  --text: #1a1d23;
+  --muted: #6b7280;
+  --accent: #1f6feb;
+  --danger: #c2331f;
+  --warn: #9a6700;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  line-height: 1.6;
+}
+
+.app { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+.app.auth { max-width: 420px; padding-top: 15vh; }
+
+.app-header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.app-header h1 { font-size: 20px; margin: 0 0 12px; }
+.app-header nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.app-header nav a {
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--panel); color: var(--muted); text-decoration: none; font-size: 13px;
+}
+.app-header nav a.active { color: var(--accent); border-color: var(--accent); }
+
+/* 常時見える帯。誰と何分話しているか */
+.target {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; margin-bottom: 12px; position: relative;
+}
+.target h2 { margin: 0; font-size: 18px; }
+.target .person { margin: 2px 0 0; color: var(--muted); }
+.target .history { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.target .elapsed {
+  position: absolute; top: 16px; right: 16px;
+  font-variant-numeric: tabular-nums; font-size: 24px; font-weight: 600;
+}
+
+.transcript {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 16px; min-height: 220px; display: flex; flex-direction: column;
+}
+.transcript header { display: flex; align-items: baseline; gap: 12px; }
+.transcript h3 { margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+.transcript .segments { flex: 1; overflow-y: auto; max-height: 320px; }
+.transcript p { margin: 0 0 6px; }
+.transcript .who {
+  display: inline-block; min-width: 3em; margin-right: 8px;
+  font-size: 11px; color: var(--muted);
+}
+.transcript .them { color: var(--text); }
+.transcript .me { color: var(--muted); }
+/* 暫定は薄く。書き換わることを見た目で伝える */
+.transcript .partial { opacity: 0.5; font-style: italic; }
+
+.suggestion {
+  margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+  background: #fff8e1; border: 1px solid #f0d68a;
+}
+
+.actions { display: flex; gap: 12px; margin: 16px 0; }
+button {
+  padding: 10px 18px; border-radius: 8px; border: 1px solid var(--accent);
+  background: var(--accent); color: #fff; font-size: 15px; cursor: pointer;
+}
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.secondary { background: var(--panel); color: var(--text); border-color: var(--border); }
+button.danger { background: var(--danger); border-color: var(--danger); }
+/* 通話終了は他の操作から離す。誤って切ると相手にかけ直すことになる */
+button.hangup { margin-left: auto; }
+
+.dispositions { background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 16px; }
+.dispositions h3 { margin: 0 0 10px; font-size: 14px; color: var(--muted); }
+.dispositions .grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.dispositions button { background: var(--panel); color: var(--text); border-color: var(--border); font-size: 14px; }
+
+.countdown {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  padding: 10px 14px; border-radius: 8px; background: #eaf2ff; border: 1px solid #bcd4ff;
+}
+.countdown span { flex: 1; }
+
+.error { color: var(--danger); background: #fdecea; border: 1px solid #f5c2bb;
+  padding: 10px 14px; border-radius: 8px; }
+.notice { color: var(--muted); background: var(--panel); border: 1px solid var(--border);
+  padding: 10px 14px; border-radius: 8px; }
+.warn { color: var(--warn); font-size: 13px; }
+
+.login { display: flex; flex-direction: column; gap: 12px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+.login h1 { margin: 0; font-size: 20px; }
+.login label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
+.login input { padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; }

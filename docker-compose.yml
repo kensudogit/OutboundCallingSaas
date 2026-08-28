@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: calling
+    ports:
+      - "5434:5432"          # ホスト側は 5434。既存の PostgreSQL と衝突させない
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # 初回起動時に app_user / migrator を作る。RLS はこの 2 ロールの
+      # 分離が前提なので、手順ではなく構成として持つ
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d calling"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # media ワーカー → web ワーカーの Pub/Sub。音声そのものは流さない
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  db-data:
