@@ -300,6 +300,16 @@ media は同時通話数）ことに加え、Twilio は `wss://` で 443 に繋�
 
 **jobs は HTTP サービスを持たない**プロセスグループなので、自動停止の対象にならず常時動く。
 
+デプロイ前に、何が足りないかを機械的に出せる。
+
+```bash
+python scripts/check-deploy-env.py             # fly を叩いて設定済みと差分を出す
+python scripts/check-deploy-env.py --print-only  # fly なしで必要な変数を並べる
+```
+
+必須の一覧は `config.py` の `_required(...)` から読むので、変数を足したときに
+二重管理にならない。**値は一切表示しない**ので、出力をそのまま貼っても漏れない。
+
 ```bash
 # 0. アプリ名を確認して fly.toml の app を合わせる
 fly apps list
@@ -384,7 +394,7 @@ API と media ワーカーの両方で検査する。片方だけ守っても、
 | 依存の解決に失敗する | `pyproject.toml` のピンが実在しないバージョンだった |
 | フロントだけ unhealthy になる | Next.js standalone は `HOSTNAME` を bind アドレスに使い、Docker がそこにコンテナ ID を入れる。外部公開は効くのでヘルスチェックだけ落ちる |
 | entrypoint が `no such file or directory` | 改行が CRLF。`.gitattributes` で LF に固定してある |
-| 設定に N 件の問題があります で起動しない | 必須の環境変数が未設定。**意図した挙動**（決済や架電で「設定が undefined のまま動く」のが最悪なので、起動時に落とす）。ログに不足分が全件出る |
+| 設定に N 件の問題があります で起動しない | 必須の環境変数が未設定。**意図した挙動**（「設定が undefined のまま動く」のが最悪なので起動時に落とす）。`scripts/check-deploy-env.py` で不足と設定コマンドが出る |
 | 他テナントのデータが見える（本番だけ） | マネージド DB の既定ロールが superuser / BYPASSRLS。`bootstrap-roles.sql` 未実行 |
 
 ---
