@@ -138,9 +138,7 @@ def test_担当者チャネルは認証を通らないと接続できない(clie
     close code 4401 で閉じられることを確認する。これはルートが存在し、
     かつ認証で弾かれたことの両方を意味する（ルートが無ければ別の失敗になる）。
     """
-    from starlette.websockets import WebSocketDisconnect
-
-    with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect(url):
-            pass
-    assert excinfo.value.code == 4401
+    with client.websocket_connect(url) as websocket:
+        message = websocket.receive()
+    assert message["type"] == "websocket.close"
+    assert message["code"] == 4401

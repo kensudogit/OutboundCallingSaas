@@ -74,6 +74,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
+        # WebSocket に JSON を返すと ASGI がエラーをログに出す
+        if request.scope.get("type") != "http":
+            raise exc
         logger.error("unhandled error", path=request.url.path, err=str(exc))
         return JSONResponse({"error": "internal_error"}, status_code=500)
 

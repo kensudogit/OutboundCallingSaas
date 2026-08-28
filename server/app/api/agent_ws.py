@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 from ..config import REDIS_URL
 from ..db.engine import tenant_tx
@@ -23,6 +24,19 @@ from .auth import decode_token
 router = APIRouter(tags=["realtime"])
 
 
+async def _reject(ws: WebSocket, code: int) -> None:
+    """認証・認可で切る。
+
+    ハンドシェイク前に close だけ送ると、ASGI が
+    「websocket.close after http.response.start」相当のエラーをログに出す。
+    一度 accept してから閉じる。
+    """
+    if ws.client_state == WebSocketState.CONNECTING:
+        await ws.accept()
+    if ws.application_state == WebSocketState.CONNECTED:
+        await ws.close(code=code)
+
+
 @router.websocket("/ws/agent/{call_id}")
 async def agent_channel(ws: WebSocket, call_id: str, token: str = "") -> None:
     # ブラウザの WebSocket は任意ヘッダを付けられないのでクエリで受ける。
@@ -30,7 +44,7 @@ async def agent_channel(ws: WebSocket, call_id: str, token: str = "") -> None:
     try:
         user = decode_token(token)
     except Exception:  # noqa: BLE001
-        await ws.close(code=4401)
+        await _reject(ws, 4401)
         return
 
     # RLS が効いた接続で引くので、他テナントの通話なら行が見えず 4403 になる
@@ -39,11 +53,11 @@ async def agent_channel(ws: WebSocket, call_id: str, token: str = "") -> None:
             "select agent_id from calls where id = $1", call_id
         )
     if row is None:
-        await ws.close(code=4403)
+        await _reject(ws, 4403)
         return
     # 自分の通話か、管理者のモニタリングのみ許可する
     if str(row["agent_id"]) != user.id and user.role not in ("manager", "admin"):
-        await ws.close(code=4403)
+        await _reject(ws, 4403)
         return
 
     await ws.accept()
