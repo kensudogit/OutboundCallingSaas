@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 
 from .api import admin, agent_ws, auth, calls, queue, stats, voice_token
 from .config import CORS_ORIGIN
-from .db.engine import close_pool, init_pool, pool
+from .db.engine import assert_rls_enforced, close_pool, init_pool, pool
 from .logger import logger
 from .telephony import routes as telephony_routes
 
@@ -30,6 +30,9 @@ async def lifespan(_: FastAPI):
     # DB に繋がらないまま起動して、発信のときに初めて気付くのを避ける
     async with pool().acquire() as conn:
         await conn.fetchval("select 1")
+        # ★ 接続ロールが RLS を素通りしないことを確かめる。
+        #   ここを通さないと「動くけれど守られていない」本番ができる
+        await assert_rls_enforced(conn)
     logger.info("server started")
     yield
     await close_pool()

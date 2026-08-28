@@ -15,10 +15,60 @@ from contextlib import asynccontextmanager
 
 import asyncpg
 
-from ..config import DATABASE_MIGRATOR_URL, DATABASE_URL
+from ..config import APP_ENV, DATABASE_MIGRATOR_URL, DATABASE_URL
 from ..logger import logger
 
 _pool: asyncpg.Pool | None = None
+
+
+class RlsNotEnforced(RuntimeError):
+    """アプリの接続ロールが RLS を素通りする。
+
+    ★ これは「動くけれど守られていない」状態なので、起動を止める。
+      黙って動かすと、他テナントの顧客リストと通話録音が見える本番が
+      できあがり、しかも誰も気付かない。
+    """
+
+
+async def assert_rls_enforced(conn: asyncpg.Connection) -> None:
+    """アプリの接続ロールで RLS が効くことを確かめる（原則 4）。
+
+    ★ force row level security はテーブル所有者には効くが、
+      **superuser と BYPASSRLS ロールには効かない**。
+
+      ローカルの docker-compose は db/init/00-roles.sql で app_user を
+      作るので問題ないが、マネージド Postgres（Fly / RDS / Supabase 等）を
+      繋ぐと、既定の接続ロールが superuser や所有者ということが普通にある。
+      その場合ポリシーは書かれているのに 1 行も効かず、テナント分離が
+      **本番でだけ**失われる。しかもアプリは正常に動くので気付けない。
+
+      「消す仕組みを最初に作る」と同じ発想で、ここで検出して止める。
+    """
+    row = await conn.fetchrow(
+        "select rolsuper, rolbypassrls from pg_roles where rolname = current_user"
+    )
+    if row is None:
+        return
+
+    if not (row["rolsuper"] or row["rolbypassrls"]):
+        return
+
+    reason = "superuser" if row["rolsuper"] else "BYPASSRLS"
+    message = (
+        f"アプリの接続ロールが {reason} のため、RLS が適用されません。"
+        "テナント分離が無効の状態です"
+    )
+    hint = (
+        "db/bootstrap-roles.sql を DB に流して app_user / migrator を作り、"
+        "DATABASE_URL を app_user、DATABASE_MIGRATOR_URL を migrator に向けてください"
+    )
+
+    if APP_ENV == "production":
+        logger.error(message, hint=hint)
+        raise RlsNotEnforced(f"{message}。{hint}")
+
+    # 開発中は止めない。ローカルで migrator を使って動かすことがある
+    logger.warn(message, hint=hint, app_env=APP_ENV)
 
 
 def _dsn(url: str) -> str:

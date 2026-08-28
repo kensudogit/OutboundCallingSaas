@@ -17,13 +17,32 @@ from __future__ import annotations
 
 import base64
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from ..logger import logger
 from .session import TranscriptionSession
 
-media_app = FastAPI(title="media-worker")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """media ワーカーも同じ DB を触る（通話行の更新・文字起こしの保存）。
+
+    ★ API と同じく、RLS が効かないロールで動いていないかを起動時に確かめる。
+      片方だけ検査しても、もう片方から漏れる。
+    """
+    from ..db.engine import assert_rls_enforced, close_pool, init_pool, pool
+
+    await init_pool()
+    async with pool().acquire() as conn:
+        await conn.fetchval("select 1")
+        await assert_rls_enforced(conn)
+    logger.info("media worker started")
+    yield
+    await close_pool()
+
+
+media_app = FastAPI(title="media-worker", lifespan=lifespan)
 
 
 @media_app.get("/healthz")

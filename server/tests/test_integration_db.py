@@ -522,3 +522,44 @@ async def test_受信記録は追記のみ(app_conn, admin, two_tenants):
                     "select set_config('app.tenant_id', $1, true)", str(tenant_id)
                 )
                 await app_conn.execute(statement)
+
+
+# ---------------------------------------------------------------- RLS の実効性
+
+
+async def test_アプリのロールはRLSを素通りしない(app_conn):
+    """★ force row level security は所有者には効くが、superuser と
+    BYPASSRLS ロールには効かない。app_user がそのどちらでもないこと。
+
+    ここが崩れると、ポリシーは書かれているのに 1 行も効かない状態になる。
+    """
+    row = await app_conn.fetchrow(
+        "select rolsuper, rolbypassrls from pg_roles where rolname = current_user"
+    )
+    assert row["rolsuper"] is False, "アプリのロールが superuser になっている"
+    assert row["rolbypassrls"] is False, "アプリのロールに BYPASSRLS が付いている"
+
+
+async def test_RLSが効かないロールでは本番起動を止める(app_conn, admin, monkeypatch):
+    """★ マネージド Postgres を繋ぐと、既定の接続ロールが superuser や
+    所有者ということが普通にある。その場合アプリは正常に動くのに
+    テナント分離だけが失われ、気付けない。起動時に止める。
+    """
+    from app.db import engine
+
+    # migrator は BYPASSRLS を持つ。これで繋いだ状態を模す
+    monkeypatch.setattr(engine, "APP_ENV", "production")
+    with pytest.raises(engine.RlsNotEnforced) as excinfo:
+        await engine.assert_rls_enforced(admin)
+    assert "BYPASSRLS" in str(excinfo.value)
+
+    # 正しいロールなら通る
+    await engine.assert_rls_enforced(app_conn)
+
+
+async def test_開発中は警告にとどめる(admin, monkeypatch):
+    """ローカルでは migrator で動かすことがあるので、止めない。"""
+    from app.db import engine
+
+    monkeypatch.setattr(engine, "APP_ENV", "development")
+    await engine.assert_rls_enforced(admin)   # 例外にならない

@@ -304,6 +304,10 @@ media は同時通話数）ことに加え、Twilio は `wss://` で 443 に繋�
 # 0. アプリ名を確認して fly.toml の app を合わせる
 fly apps list
 
+# ★ 1 回だけ: マネージド DB にロールを作る。
+#   これを飛ばすと RLS が「書かれているのに効かない」状態になる（下記参照）
+fly postgres connect -a <postgres-app> -d <database> < db/bootstrap-roles.sql
+
 # 1. 秘密情報。★ ここに書く値はイメージに焼き込まれない
 fly secrets set -a outbound-calling-saas   DATABASE_URL=... DATABASE_MIGRATOR_URL=... REDIS_URL=...   JWT_SECRET=$(openssl rand -hex 32)   TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_CALLER_ID=+81...   PUBLIC_BASE_URL=https://outbound-calling-saas.fly.dev   PUBLIC_WSS_URL=wss://outbound-calling-saas-media.fly.dev
 
@@ -343,6 +347,32 @@ curl https://outbound-calling-saas.fly.dev/healthz
 PUBLIC_BASE_URL=https://xxxx.trycloudflare.com PUBLIC_WSS_URL=wss://xxxx.trycloudflare.com JWT_SECRET=$(openssl rand -hex 32) TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_CALLER_ID=+81... docker compose -f docker-compose.prod.yml up --build
 ```
 
+### ★ マネージド Postgres を使うときの注意
+
+**`db/bootstrap-roles.sql` を必ず 1 回流すこと。**
+
+ローカルの docker-compose は `db/init/00-roles.sql` が初回起動時に走って
+`app_user` / `migrator` を作るが、マネージド DB（Fly Postgres / RDS /
+Supabase 等）には初期化スクリプトを差し込めない。
+
+**流さないまま既定の接続ロールを使うと、RLS が「書かれているのに 1 行も
+効かない」状態になる。** `force row level security` はテーブル所有者には
+効くが、**superuser と BYPASSRLS ロールには効かない**。マネージド DB の
+既定ロールはたいていそのどちらかで、テナント分離だけが本番で失われる。
+しかもアプリは正常に動くので気付けない。
+
+このプロジェクトは起動時に接続ロールを検査し、`APP_ENV=production` で
+RLS が効かないロールなら**起動を止める**（`assert_rls_enforced`）。
+API と media ワーカーの両方で検査する。片方だけ守っても、もう片方から漏れる。
+
+```
+アプリの接続ロールが BYPASSRLS のため、RLS が適用されません。
+テナント分離が無効の状態です
+```
+
+このログが出たら、`bootstrap-roles.sql` を流して `DATABASE_URL` を
+`app_user`、`DATABASE_MIGRATOR_URL` を `migrator` に向け直す。
+
 ### コンテナ化で踏んだ点
 
 | 症状 | 原因 |
@@ -354,6 +384,8 @@ PUBLIC_BASE_URL=https://xxxx.trycloudflare.com PUBLIC_WSS_URL=wss://xxxx.tryclou
 | 依存の解決に失敗する | `pyproject.toml` のピンが実在しないバージョンだった |
 | フロントだけ unhealthy になる | Next.js standalone は `HOSTNAME` を bind アドレスに使い、Docker がそこにコンテナ ID を入れる。外部公開は効くのでヘルスチェックだけ落ちる |
 | entrypoint が `no such file or directory` | 改行が CRLF。`.gitattributes` で LF に固定してある |
+| 設定に N 件の問題があります で起動しない | 必須の環境変数が未設定。**意図した挙動**（決済や架電で「設定が undefined のまま動く」のが最悪なので、起動時に落とす）。ログに不足分が全件出る |
+| 他テナントのデータが見える（本番だけ） | マネージド DB の既定ロールが superuser / BYPASSRLS。`bootstrap-roles.sql` 未実行 |
 
 ---
 
