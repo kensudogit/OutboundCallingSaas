@@ -2,7 +2,7 @@
 
 ★ RLS は「接続にテナントを設定してから使う」ことで効く。設定を忘れた接続からは
   1 行も見えないのが正しい失敗の仕方で、そのために current_setting(..., true) が
-  NULL を返すようにしてある（schema.sql 参照）。
+  NULL を返すようにしてある（migrations/versions/0001_initial_schema.py 参照）。
 
 ★ SET LOCAL であることが重要。SET だと接続がプールに戻った後も設定が残り、
   次に同じ接続を掴んだ別テナントのリクエストに漏れる。

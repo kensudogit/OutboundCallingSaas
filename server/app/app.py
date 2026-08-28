@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api import agent_ws, auth, calls, queue, stats, voice_token
+from .api import admin, agent_ws, auth, calls, queue, stats, voice_token
 from .config import CORS_ORIGIN
 from .db.engine import close_pool, init_pool, pool
 from .logger import logger
@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
 
     # 通常の JSON API
     app.include_router(auth.router)
+    app.include_router(admin.router)
     app.include_router(queue.router)
     app.include_router(calls.router)
     app.include_router(voice_token.router)

@@ -207,8 +207,10 @@ async def record_delivery(
     後から確認できるようにしておくと障害調査が早い。
     """
     await conn.execute(
-        "insert into webhook_deliveries (provider_call_sid, event_type, payload) "
-        "values ($1, $2, $3::jsonb)",
+        # ★ tenant_id を入れる。payload には From / To の電話番号が入るので、
+        #   テナント分離の対象（0002_webhook_rls）
+        "insert into webhook_deliveries (tenant_id, provider_call_sid, event_type, payload) "
+        "values (current_tenant_id(), $1, $2, $3::jsonb)",
         provider_call_sid,
         event_type,
         payload,

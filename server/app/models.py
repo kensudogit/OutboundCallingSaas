@@ -39,7 +39,7 @@ _RANK: dict[str, int] = {
 
 
 def status_rank(status: str) -> int:
-    """schema.sql の call_status_rank() と同じ順序。両方に持つのは冗長だが、
+    """DB 側の call_status_rank() と同じ順序（0001_initial_schema）。冗長だが、
     アプリ側でも順序判断が要る場面（イベントの取捨）があるため。
     値を変えるときは必ず両方直す。
     """

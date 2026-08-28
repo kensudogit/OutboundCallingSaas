@@ -12,7 +12,7 @@
 DB が無ければスキップする。CI では docker compose up -d の後に走らせる。
 
     docker compose up -d
-    cd server && python -m app.db.migrate --drop
+    cd server && python -m alembic upgrade head
     python -m pytest tests/test_integration_db.py
 """
 
@@ -418,3 +418,107 @@ async def test_アプリユーザーは通話を消せないが更新はでき�
     async with app_conn.transaction():
         await app_conn.execute("select set_config('app.tenant_id', $1, true)", str(tenant_id))
         await app_conn.execute("update calls set note = 'x' where false")
+
+
+# ---------------------------------------------------------------- マイグレーション
+
+
+async def test_全てのアプリテーブルでRLSが有効(admin):
+    """★ 実際に踏んだ抜けの回帰テスト。
+
+    webhook_deliveries は Twilio の生ペイロード（From / To の電話番号を含む）を
+    持つのに、tenant_id も RLS も無く、他テナントの番号が全件読める状態だった。
+
+    テーブルを足すたびに RLS を掛け忘れる余地があるので、
+    「RLS が無いテーブルは alembic_version だけ」を固定する。
+    """
+    rows = await admin.fetch(
+        "select tablename from pg_tables "
+        " where schemaname = 'public' and not rowsecurity order by tablename"
+    )
+    assert [r["tablename"] for r in rows] == ["alembic_version"]
+
+
+async def test_RLSを有効にしたテーブルにはポリシーがある(admin):
+    """RLS を有効にしてポリシーを書き忘れると全件拒否になる。
+
+    失敗の仕方としては安全側だが、原因が「RLS の設定漏れ」だと気付くまで
+    時間を溶かすので、ここで検出する。
+    """
+    rows = await admin.fetch(
+        """
+        select c.relname
+          from pg_class c
+          join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = 'public' and c.relrowsecurity
+           and not exists (select 1 from pg_policy p where p.polrelid = c.oid)
+         order by c.relname
+        """
+    )
+    assert [r["relname"] for r in rows] == []
+
+
+async def test_INSERT専用ポリシーにはwith_checkがある(admin):
+    """★ 書き込みを許すポリシーの検査。
+
+    ALL / UPDATE のポリシーは WITH CHECK を省くと USING が検査条件を兼ねるので
+    省略してよい。SELECT のポリシーは WITH CHECK を持てない。
+    危ないのは「INSERT 専用ポリシーで WITH CHECK が無い」形だけで、
+    これは他テナントの tenant_id を指定した INSERT が素通りする。
+    """
+    rows = await admin.fetch(
+        """
+        select c.relname, p.polname
+          from pg_policy p
+          join pg_class c on c.oid = p.polrelid
+          join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = 'public'
+           and p.polcmd = 'a'            -- INSERT 専用
+           and p.polwithcheck is null
+         order by 1, 2
+        """
+    )
+    assert [(r["relname"], r["polname"]) for r in rows] == []
+
+
+async def test_webhook_deliveriesがテナントで分離されている(app_conn, admin, two_tenants):
+    """コールバックの生ペイロードは個人情報。他テナントから見えないこと。"""
+    tenant_a = two_tenants["a"]["tenant_id"]
+    tenant_b = two_tenants["b"]["tenant_id"]
+
+    for tenant_id, sid in ((tenant_a, "CA-a"), (tenant_b, "CA-b")):
+        await admin.execute(
+            "insert into webhook_deliveries (tenant_id, provider_call_sid, event_type, payload) "
+            "values ($1, $2, 'completed', '{\"To\": \"+819011112222\"}'::jsonb)",
+            tenant_id, sid,
+        )
+
+    async with app_conn.transaction():
+        await app_conn.execute(
+            "select set_config('app.tenant_id', $1, true)", str(tenant_a)
+        )
+        rows = await app_conn.fetch("select provider_call_sid from webhook_deliveries")
+
+    sids = {r["provider_call_sid"] for r in rows}
+    assert "CA-a" in sids
+    assert "CA-b" not in sids, "他テナントのコールバックが見えている"
+
+
+async def test_受信記録は追記のみ(app_conn, admin, two_tenants):
+    """改竄されると障害調査の根拠にならない。"""
+    tenant_id = two_tenants["a"]["tenant_id"]
+    await admin.execute(
+        "insert into webhook_deliveries (tenant_id, provider_call_sid, event_type, payload) "
+        "values ($1, 'CA-x', 'completed', '{}'::jsonb)",
+        tenant_id,
+    )
+    for statement in (
+        "delete from webhook_deliveries",
+        "update webhook_deliveries set event_type = 'tampered'",
+    ):
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            async with app_conn.transaction():
+                await app_conn.execute(
+                    "select set_config('app.tenant_id', $1, true)", str(tenant_id)
+                )
+                await app_conn.execute(statement)

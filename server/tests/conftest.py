@@ -15,7 +15,15 @@ import os
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("PUBLIC_BASE_URL", "https://example.test")
 os.environ.setdefault("PUBLIC_WSS_URL", "wss://example.test")
-os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5434/test")
+# ★ 実 DB を使うテスト（*_db.py）はアプリのプール経由で繋ぐので、
+#   ここが実在する DSN でないと接続できない。DB が無い環境では
+#   各テストの fixture が skip するので、値が入っていても害はない。
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql://app_user:app_password@localhost:5434/calling"
+)
+os.environ.setdefault(
+    "DATABASE_MIGRATOR_URL", "postgresql://migrator:migrator_password@localhost:5434/calling"
+)
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-do-not-use-outside-tests")
 os.environ.setdefault("TWILIO_ACCOUNT_SID", "ACtest00000000000000000000000000")
 os.environ.setdefault("TWILIO_AUTH_TOKEN", "test-auth-token-0123456789")

@@ -1,4 +1,32 @@
--- ============================================================================
+"""initial schema
+
+架電特化型SaaS の初期スキーマ。
+
+★ この内容は「凍結」されている。既に適用された環境があるので、
+  ここを後から書き換えてはいけない。変更は必ず新しいリビジョンで行う。
+  書き換えると、新規環境と既存環境でスキーマが食い違い、しかも
+  どちらが正しいか分からなくなる。
+
+★ SQLAlchemy のモデルは持たず、DDL を生の SQL で書いている。
+  RLS のポリシー・部分ユニークインデックス・不変関数は SQLAlchemy の
+  スキーマ表現では書けないものが多く、無理に寄せると読めなくなるため。
+  この方針上、autogenerate は使えない（env.py 参照）。
+
+Revision ID: 0001_initial
+Revises:
+Create Date: 2026-08-28
+"""
+
+from __future__ import annotations
+
+from alembic import op
+
+revision = "0001_initial"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+SCHEMA = r"""-- ============================================================================
 -- 架電特化型SaaS スキーマ
 --
 -- 設計の要点は references/data-model.md にある。ここで押さえているのは 4 点。
@@ -439,3 +467,25 @@ revoke update, delete on dnc_entries from app_user;
 revoke update, delete on audit_logs  from app_user;
 -- ★ calls は upsert で UPDATE するため revoke しない。DELETE だけ落とす
 revoke delete on calls from app_user;
+"""
+
+# ★ downgrade は「作ったものを全部消す」。架電 SaaS の DB には他社の顧客リストと
+#   通話録音が入っているので、実行すると取り返しがつかない。
+#   本番で downgrade を打つ運用は想定していない（前進のみ）。
+DOWNGRADE = """
+drop table if exists call_summaries, transcription_jobs,
+  audit_logs, daily_agent_stats, agent_sessions,
+  call_conversation_metrics, call_suggestions, transcript_segments, recordings,
+  webhook_deliveries, call_attempts_blocked, calls, call_reservations,
+  dispositions, dnc_entries, contacts, contact_lists, users, tenants cascade;
+drop function if exists call_status_rank(text);
+drop function if exists current_tenant_id();
+"""
+
+
+def upgrade() -> None:
+    op.execute(SCHEMA)
+
+
+def downgrade() -> None:
+    op.execute(DOWNGRADE)

@@ -101,3 +101,56 @@ button.hangup { margin-left: auto; }
 .login h1 { margin: 0; font-size: 20px; }
 .login label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
 .login input { padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; }
+
+/* ---------------------------------------------------------------- 管理画面 */
+
+.app.wide { max-width: 1100px; }
+
+.tabs { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+.tabs button {
+  background: var(--panel); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 6px 16px; font-size: 14px;
+}
+.tabs button.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px 20px; margin-bottom: 16px;
+}
+.panel h3 { margin: 0 0 4px; font-size: 16px; }
+.panel h4 { margin: 12px 0 6px; font-size: 14px; color: var(--muted); }
+.panel label { display: flex; flex-direction: column; gap: 4px; margin: 12px 0;
+  font-size: 14px; color: var(--muted); }
+.panel label.inline { flex-direction: row; align-items: center; gap: 6px;
+  color: var(--text); margin-right: 14px; }
+.panel input[type="text"], .panel input:not([type]), .panel input[type="time"],
+.panel input[type="number"], .panel textarea {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 15px; color: var(--text); background: #fff; font-family: inherit;
+}
+.panel textarea { width: 100%; resize: vertical; }
+.panel .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+.panel fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px;
+  margin: 12px 0; }
+.panel fieldset legend { font-size: 13px; color: var(--muted); padding: 0 6px; }
+
+/* 守るべき方針の説明。読み飛ばされない程度に目立たせる */
+.policy {
+  background: #fff8e1; border: 1px solid #f0d68a; border-radius: 8px;
+  padding: 10px 14px; font-size: 14px; margin: 12px 0;
+}
+.muted.small { font-size: 13px; margin: 4px 0 0; }
+
+.panel.immutable { background: #f4f6f8; }
+.panel.immutable dl { margin: 0; }
+.panel.immutable dt { font-size: 14px; margin-top: 10px; }
+.panel.immutable dd { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+
+.panel table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+.panel th, .panel td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.panel th { color: var(--muted); font-weight: 500; font-size: 13px; }
+.panel tbody tr.selected { background: #eaf2ff; }
+.panel td.detail { color: var(--muted); font-size: 12px; word-break: break-all; }
+
+.rejected table { margin-top: 4px; }
+.rejected td { color: var(--danger); }
