@@ -284,7 +284,60 @@ docker build -f web/Dockerfile -t calling-web ./web     # フロント
 **`migrate` をコンテナ起動時に流さない。** 複数インスタンスが同時に上がると
 同じマイグレーションを並行実行することになる。リリースコマンドとして 1 回だけ実行する。
 
-一式を動かして確かめる場合:
+### Fly.io
+
+アプリを 3 つに分ける。`fly.toml` / `fly.media.toml` / `web/fly.toml`。
+
+| アプリ | プロセス | 公開 | 止めてよいか |
+| --- | --- | --- | --- |
+| `outbound-calling-saas` | api, jobs | HTTPS 443 → 8000 | **不可**（Twilio の Webhook は待たない） |
+| `outbound-calling-saas-media` | media | WSS 443 → 8001 | **不可**（通話中に張られるので冒頭が落ちる） |
+| `outbound-calling-saas-web` | Next.js | HTTPS 443 → 3000 | 可（人間は待てる） |
+
+**media を api と同じアプリに入れない。** スケールの軸が違う（api は同時ユーザー数、
+media は同時通話数）ことに加え、Twilio は `wss://` で 443 に繋いでくるので、
+1 アプリに 2 つの HTTPS サービスを載せると片方が非標準ポートになる。
+
+**jobs は HTTP サービスを持たない**プロセスグループなので、自動停止の対象にならず常時動く。
+
+```bash
+# 0. アプリ名を確認して fly.toml の app を合わせる
+fly apps list
+
+# 1. 秘密情報。★ ここに書く値はイメージに焼き込まれない
+fly secrets set -a outbound-calling-saas   DATABASE_URL=... DATABASE_MIGRATOR_URL=... REDIS_URL=...   JWT_SECRET=$(openssl rand -hex 32)   TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_CALLER_ID=+81...   PUBLIC_BASE_URL=https://outbound-calling-saas.fly.dev   PUBLIC_WSS_URL=wss://outbound-calling-saas-media.fly.dev
+
+# media 側にも同じ DB / Redis / Twilio が要る（署名検証と DB 記録を行うため）
+fly secrets set -a outbound-calling-saas-media   DATABASE_URL=... DATABASE_MIGRATOR_URL=... REDIS_URL=...   JWT_SECRET=... TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=...   TWILIO_CALLER_ID=+81...   PUBLIC_BASE_URL=https://outbound-calling-saas.fly.dev   PUBLIC_WSS_URL=wss://outbound-calling-saas-media.fly.dev
+
+fly secrets set -a outbound-calling-saas-web   API_BASE_URL=http://outbound-calling-saas.internal:8000   NEXT_PUBLIC_WSS_URL=wss://outbound-calling-saas-media.fly.dev
+
+# 2. デプロイ。api のリリース時にだけマイグレーションが流れる
+fly deploy                       # api + jobs（release_command = migrate）
+fly deploy -c fly.media.toml     # 音声ワーカー
+fly deploy ./web                 # フロント
+```
+
+**`PUBLIC_WSS_URL` は media アプリを指す**が、設定するのは **api 側**。
+TwiML の `<Start><Stream url="...">` を組み立てるのは api だから。
+
+**`PUBLIC_BASE_URL` は Twilio Console に登録した URL と 1 文字も違ってはいけない。**
+署名はこの URL を含めて計算されるので、片方だけ変えると Webhook が全件 403 になる。
+デプロイ後に URL が確定したら、この変数と Twilio 側の両方を更新する。
+
+デプロイ後の確認:
+
+```bash
+fly status                                  # api / jobs が動いているか
+fly status -c fly.media.toml                # media が動いているか
+fly logs -c fly.media.toml                  # 音声ワーカーのログ
+curl https://outbound-calling-saas.fly.dev/healthz
+```
+
+**`jobs` のマシンが 1 台動いていることを必ず確認する。** これが落ちていると、
+担当者のブラウザが落ちるたびに予約が残り、リストが少しずつ枯れる。
+
+一式をローカルで動かして確かめる場合:
 
 ```bash
 PUBLIC_BASE_URL=https://xxxx.trycloudflare.com PUBLIC_WSS_URL=wss://xxxx.trycloudflare.com JWT_SECRET=$(openssl rand -hex 32) TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_CALLER_ID=+81... docker compose -f docker-compose.prod.yml up --build
@@ -295,6 +348,8 @@ PUBLIC_BASE_URL=https://xxxx.trycloudflare.com PUBLIC_WSS_URL=wss://xxxx.tryclou
 | 症状 | 原因 |
 | --- | --- |
 | ビルドが Dockerfile を見つけられない | リポジトリのルートに Dockerfile が無かった |
+| Dockerfile を足したのに同じエラーが続く | デプロイ対象が `main` で、コードはフィーチャーブランチにあった。snapshot が数 kB なら、送られているのが README だけの合図 |
+| media と jobs が動かない | `fly.toml` が無いと既定の `CMD`（api）だけが起動する |
 | `pip install .` が失敗する | `[tool.setuptools] packages` の未指定。app / tests / migrations が並んでおり自動検出できない |
 | 依存の解決に失敗する | `pyproject.toml` のピンが実在しないバージョンだった |
 | フロントだけ unhealthy になる | Next.js standalone は `HOSTNAME` を bind アドレスに使い、Docker がそこにコンテナ ID を入れる。外部公開は効くのでヘルスチェックだけ落ちる |

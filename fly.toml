@@ -1,0 +1,80 @@
+# ============================================================================
+# API + 定期ジョブ。
+#
+# ★ app の名前は既存のアプリに合わせて必ず確認すること。
+#   違っていると "Could not find App" で止まる（間違ったアプリに出ることはない）。
+#   確認: fly apps list
+#
+# ★ media（音声ワーカー）はこのアプリに入れない。fly.media.toml を使う。
+#   理由は 2 つ。
+#     1. スケールの軸が違う。API は同時ユーザー数、media は同時通話数
+#     2. Twilio は wss:// で繋いでくるので 443 が要る。1 アプリに 2 つの
+#        HTTPS サービスを載せると片方が非標準ポートになり、Twilio 側の
+#        接続条件を狭める
+#
+# デプロイ:
+#   fly deploy                          # API + jobs
+#   fly deploy -c fly.media.toml        # 音声ワーカー
+#   fly deploy ./web                    # フロント
+# ============================================================================
+
+app = "outbound-calling-saas"
+primary_region = "sin"                  # asia-southeast1（ビルドログのリージョンに合わせた）
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # ★ マイグレーションはリリース時に 1 回だけ。コンテナ起動時に流すと、
+  #   複数インスタンスが同時に上がったときに並行実行になる
+  release_command = "migrate"
+  strategy = "rolling"
+
+[processes]
+  # ENTRYPOINT（docker-entrypoint.sh）に渡す引数
+  api = "api"
+  # ★ 予約の解放・録音のコピーと削除・集計。これを動かさないと、担当者の
+  #   ブラウザが落ちるたびに予約が残り、リストが少しずつ枯れる
+  jobs = "jobs"
+
+[env]
+  APP_ENV = "production"
+  PORT = "8000"
+  # 秘密情報は fly secrets set で入れる。ここには書かない
+  # 必須: PUBLIC_BASE_URL PUBLIC_WSS_URL DATABASE_URL DATABASE_MIGRATOR_URL
+  #       REDIS_URL JWT_SECRET TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_CALLER_ID
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  processes = ["api"]
+
+  # ★ 止めない。Twilio の Webhook は待ってくれない。コールドスタート中に
+  #   届いたコールバックを取りこぼすと、通話は成立したのに権限が付かない
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    # ★ 「プロセスが生きている」ではなく「DB に繋がる」で判定する。
+    #   前者だと DB 断でもロードバランサに入れられ続ける
+    path = "/healthz"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["api"]
+
+[[vm]]
+  # ジョブは常時 1 台。HTTP サービスを持たないので自動停止の対象外
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["jobs"]

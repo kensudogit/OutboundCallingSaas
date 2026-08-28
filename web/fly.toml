@@ -1,0 +1,51 @@
+# ============================================================================
+# フロント（Next.js）。
+#
+# ★ サーバーとは別アプリ。Python から Server Components は配信できない。
+#
+# ★ ビルドコンテキストは web/ 。ルートの Dockerfile とは別物。
+#
+# デプロイ: fly deploy ./web
+#
+#   ★ ディレクトリを渡す。-c だけだとビルドコンテキストがリポジトリのルートに
+#     なり、web/Dockerfile が package.json を見つけられない。
+#
+# 必要な設定:
+#   fly secrets set -a outbound-calling-saas-web \
+#     API_BASE_URL=http://outbound-calling-saas.internal:8000 \
+#     NEXT_PUBLIC_WSS_URL=wss://outbound-calling-saas-media.fly.dev
+#
+#   ★ API へは .internal（Fly の内部ネットワーク）で繋ぐ。公開 URL 経由に
+#     すると往復がインターネットに出て遅くなるうえ、API を公開しない構成に
+#     切り替えられなくなる。
+#   ★ NEXT_PUBLIC_WSS_URL はブラウザが直接繋ぐ先なので公開ホスト名。
+#     こちらは media アプリを指す。
+# ============================================================================
+
+app = "outbound-calling-saas-web"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # 画面は多少のコールドスタートを許容できる（Twilio と違い人間が待てる）
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    path = "/login"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

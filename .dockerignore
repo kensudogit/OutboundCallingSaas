@@ -33,3 +33,7 @@ server/tests
 docker-compose.yml
 db/
 README.md
+
+# デプロイ設定。イメージには要らない
+fly.toml
+fly.media.toml

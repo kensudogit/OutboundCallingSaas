@@ -1,0 +1,68 @@
+# ============================================================================
+# 音声ワーカー（Media Streams の受け口）。
+#
+# ★ API とは別アプリにする（原則 3）。
+#   Media Streams は 1 通話あたり毎秒 50 メッセージ（20ms ごとの音声フレーム）。
+#   API と同じイベントループに載せると、通話が増えるほど API のレスポンスが
+#   悪化し、原因が分かりにくい形で表面化する。
+#
+# ★ このアプリのホスト名を PUBLIC_WSS_URL に設定する。TwiML の
+#   <Start><Stream url="..."> がここを指す。
+#
+#     fly secrets set -a outbound-calling-saas \
+#       PUBLIC_WSS_URL=wss://outbound-calling-saas-media.fly.dev
+#
+#   ★ 設定するのは API 側のアプリ。TwiML を組み立てるのは API だから。
+#
+# ★ release_command は置かない。マイグレーションは API 側で 1 回だけ流す。
+#   両方に置くと同じマイグレーションを 2 回走らせることになる。
+#
+# デプロイ: fly deploy -c fly.media.toml
+# ============================================================================
+
+app = "outbound-calling-saas-media"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  strategy = "rolling"
+
+[processes]
+  media = "media"
+
+[env]
+  APP_ENV = "production"
+  # ヘルスチェックのスクリプトは PORT を見るので、内部ポートと揃える
+  PORT = "8001"
+  MEDIA_PORT = "8001"
+
+[http_service]
+  internal_port = 8001
+  force_https = true
+  processes = ["media"]
+
+  # ★ 絶対に止めない。通話が始まってから Twilio が WSS を張るので、
+  #   コールドスタートすると通話の冒頭が丸ごと落ちる
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    # ★ 通話数で見る。1 接続 = 1 通話が長時間続くので、requests では測れない
+    type = "connections"
+    soft_limit = 40
+    hard_limit = 50
+
+  [[http_service.checks]]
+    path = "/healthz"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
+
+[[vm]]
+  # 音声のデコードと ASR への転送で CPU を使う。API より余裕を持たせる
+  size = "shared-cpu-2x"
+  memory = "1gb"
+  processes = ["media"]
