@@ -30,8 +30,9 @@ next-env.d.ts
 coverage/
 *.log
 
-# 録音の一時保管先（万一ローカルに落とした場合）
+# 録音の保管先。RECORDING_STORAGE=local のときここに溜まる。
 # ★ 通話録音は個人情報。リポジトリに入れない
+var/
 recordings/
 *.wav
 *.mp3

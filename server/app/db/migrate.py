@@ -27,11 +27,13 @@ from ..security import hash_password
 SCHEMA = pathlib.Path(__file__).with_name("schema.sql")
 
 DROP = """
-drop table if exists audit_logs, daily_agent_stats, agent_sessions,
+drop table if exists call_summaries, transcription_jobs,
+  audit_logs, daily_agent_stats, agent_sessions,
   call_conversation_metrics, call_suggestions, transcript_segments, recordings,
   webhook_deliveries, call_attempts_blocked, calls, call_reservations,
   dispositions, dnc_entries, contacts, contact_lists, users, tenants cascade;
 drop function if exists call_status_rank(text);
+drop function if exists current_tenant_id();
 """
 
 # 結果コード。triggers_dnc が true のものは、登録と同時に DNC に入る。

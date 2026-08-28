@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from ..config import AUTO_DIAL_DELAY_SEC
@@ -142,13 +142,76 @@ async def get_recording(call_id: str, user: AuthUser = Depends(current_user)):
             call_id,
         )
 
-    # 自社ストレージへのコピーが済んでいればそちらの署名付き URL を返す。
-    # 未実装の間は 501 を返し、Twilio の URL を素通しさせない
+    # ★ Twilio の URL は絶対に返さない。自社ストレージへのコピーが済むまでは
+    #   「まだ準備中」を返す。素通しすると、自社のアクセス制御を通らない URL が
+    #   外に出ることになる
     if not rec["storage_key"]:
-        raise HTTPException(
-            status_code=501,
-            detail="recording_storage_not_configured",
-        )
-    from ..storage import presigned_url
+        raise HTTPException(status_code=409, detail="recording_not_ready")
 
-    return {"url": presigned_url(rec["storage_key"], expires_in=300)}
+    from .. import storage
+
+    return {"url": storage.presigned_url(rec["storage_key"], expires_in=300)}
+
+
+@router.get("/calls/{call_id}/summary")
+async def get_summary(call_id: str, user: AuthUser = Depends(current_user)):
+    """通話後の要約と会話メトリクス。
+
+    ★ トーク比率は「あなたは 72% 話しています」と本人に見せるための値。
+      並べて管理者に見せると評価になるので、この API は自分の通話か
+      管理者のみが引ける（RLS + 下のチェック）。
+    """
+    async with tenant_tx(user.tenant_id) as conn:
+        call = await calls_repo.get(conn, call_id)
+        if call is None:
+            raise HTTPException(status_code=404, detail="call_not_found")
+        if str(call["agent_id"]) != user.id and user.role not in ("manager", "admin"):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        summary = await conn.fetchrow(
+            "select summary, next_action, model, created_at from call_summaries "
+            "where call_id = $1",
+            call_id,
+        )
+        metrics = await conn.fetchrow(
+            "select * from call_conversation_metrics where call_id = $1", call_id
+        )
+
+    talk_ratio = None
+    if metrics:
+        total = metrics["agent_talk_ms"] + metrics["contact_talk_ms"]
+        # ★ 割合はここで割るが、分子と分母も返す。画面側が分母 0 の扱いを
+        #   決められるようにするため
+        talk_ratio = metrics["agent_talk_ms"] / total if total else None
+
+    return {
+        "summary": dict(summary) if summary else None,
+        "metrics": {**dict(metrics), "talk_ratio": talk_ratio} if metrics else None,
+    }
+
+
+@router.get("/recordings/file")
+async def serve_local_recording(key: str, expires: int, sig: str):
+    """ローカルストレージ用の署名付き配信。
+
+    ★ S3 構成では presigned_url が S3 を直接指すのでこのルートは使われない。
+      ローカルでも同じ「期限付き署名」の形にしてあるので、アクセス制御の
+      検証がローカルでできる（本番でだけ守られている、を避ける）。
+
+    ★ 署名の検証だけで認証は見ない。URL 自体が短命な capability であり、
+      発行時に監査ログと権限チェックを済ませている。
+    """
+    from .. import storage
+
+    local = storage.backend()
+    if not isinstance(local, storage.LocalStorage):
+        raise HTTPException(status_code=404, detail="not_found")
+    if not local.verify(key, expires, sig):
+        raise HTTPException(status_code=403, detail="invalid_or_expired_signature")
+
+    try:
+        data = local.get(key)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="not_found") from exc
+
+    return Response(content=data, media_type="audio/wav")

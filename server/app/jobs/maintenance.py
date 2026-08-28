@@ -51,7 +51,7 @@ async def purge_recordings() -> int:
         for row in rows:
             if row["storage_key"] and storage.is_configured():
                 try:
-                    storage.delete_object(row["storage_key"])
+                    storage.backend().delete(row["storage_key"])
                 except Exception as exc:  # noqa: BLE001
                     # 消せなかったものは行を残す。次回また拾う
                     logger.error("録音の削除に失敗しました", id=str(row["id"]), err=str(exc))
@@ -107,9 +107,37 @@ async def rollup_daily_stats() -> int:
 
 
 async def run_once() -> None:
+    """1 巡分。順序に意味がある。
+
+    ★ 録音のコピーを文字起こしより先に置く。コピーが済んでいない録音は
+      文字起こしの対象にならないので、逆順だと 1 巡遅れる。
+    ★ 保存期間切れの削除は最後。同じ巡で入った録音をすぐ消さないため。
+    """
     await expire_reservations()
-    await purge_recordings()
+    await copy_recordings()
+    await transcribe_recordings()
     await rollup_daily_stats()
+    await purge_recordings()
+
+
+async def copy_recordings() -> dict[str, int]:
+    """録音を Twilio から自社ストレージへ移す（原則 5）。"""
+    from .recordings import copy_pending, purge_orphans
+
+    result = await copy_pending()
+    result["purged_orphans"] = await purge_orphans()
+    return result
+
+
+async def transcribe_recordings() -> dict[str, int]:
+    """通話後の全文文字起こし・要約・会話メトリクス。
+
+    ★ ここが止まっても通話・録音・結果登録は成立する。
+      AI が落ちても電話はかけられる、が正しい壊れ方。
+    """
+    from .transcribe import run_once as transcribe_once
+
+    return await transcribe_once()
 
 
 async def main() -> None:

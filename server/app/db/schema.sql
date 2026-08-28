@@ -247,6 +247,10 @@ create table recordings (
   storage_key            text,
   duration_sec           integer,
   channels               integer not null default 1,
+  size_bytes             bigint,
+  -- ★ 「コピーしてから消す」の状態を列で持つ。各段が途中で失敗してよく、
+  --   次回の実行が続きから拾えるようにするため
+  provider_purged_at     timestamptz,
   -- ★ 保存期間は行に持つ。「消す仕組み」を最初に作る
   expires_at             timestamptz not null,
   deleted_at             timestamptz,
@@ -255,6 +259,38 @@ create table recordings (
 );
 
 create index recordings_expiry on recordings (expires_at) where deleted_at is null;
+-- コピー待ち・プロバイダ削除待ちを引くジョブ用
+create index recordings_pending_copy on recordings (created_at)
+  where storage_key is null and deleted_at is null;
+create index recordings_pending_purge on recordings (created_at)
+  where storage_key is not null and provider_purged_at is null;
+
+-- 通話の要約。文字起こしと同じく個人情報なので保存期間を持つ
+create table call_summaries (
+  call_id       uuid primary key references calls(id) on delete cascade,
+  tenant_id     uuid not null references tenants(id) on delete cascade,
+  summary       text not null,
+  next_action   text,
+  -- 生成に使ったモデル。プロンプトやモデルを変えたときの比較に要る
+  model         text not null,
+  expires_at    timestamptz not null,
+  created_at    timestamptz not null default now()
+);
+
+-- 全文文字起こしの処理状態。ジョブが冪等に再開できるようにする
+create table transcription_jobs (
+  recording_id  uuid primary key references recordings(id) on delete cascade,
+  tenant_id     uuid not null references tenants(id) on delete cascade,
+  state         text not null default 'PENDING'
+    check (state in ('PENDING', 'RUNNING', 'DONE', 'FAILED', 'SKIPPED')),
+  attempts      integer not null default 0,
+  last_error    text,
+  updated_at    timestamptz not null default now(),
+  created_at    timestamptz not null default now()
+);
+
+create index transcription_jobs_pending on transcription_jobs (state, updated_at)
+  where state in ('PENDING', 'FAILED');
 
 -- ---------------------------------------------------------------- transcripts
 
@@ -264,7 +300,9 @@ create table transcript_segments (
   call_id     uuid not null references calls(id) on delete cascade,
   -- realtime: 通話中の暫定版 / batch: 録音からの確定版。両方残す
   source      text not null check (source in ('realtime', 'batch')),
-  track       text not null check (track in ('inbound', 'outbound')),
+  -- unknown はモノラル録音（話者が分離できない）。文字起こしは残すが
+  -- 会話メトリクスは計算しない
+  track       text not null check (track in ('inbound', 'outbound', 'unknown')),
   -- ★ ストリーム開始からの経過ms。受信時刻を使うと録音と頭出しがずれる
   started_ms  integer not null,
   ended_ms    integer not null,
@@ -361,7 +399,7 @@ begin
     'users', 'contact_lists', 'contacts', 'dispositions', 'call_reservations',
     'calls', 'call_attempts_blocked', 'recordings', 'transcript_segments',
     'call_suggestions', 'call_conversation_metrics', 'agent_sessions',
-    'daily_agent_stats', 'audit_logs'
+    'daily_agent_stats', 'audit_logs', 'call_summaries', 'transcription_jobs'
   ]
   loop
     execute format('alter table %I enable row level security', t);
