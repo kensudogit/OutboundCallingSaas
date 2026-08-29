@@ -32,6 +32,22 @@ def _required(name: str, hint: str) -> str:
     return value
 
 
+def _railway_https_origin() -> str:
+    """Railway が付与する公開ホスト名から origin を組み立てる。
+
+    PUBLIC_BASE_URL を先に要求すると、初回デプロイで URL がまだ無い／Variables
+    に書き忘れている、という鶏卵になる。ドメインがあれば https で補う。
+    Twilio に登録する URL と一致させる必要は、補完後も変わらない。
+    """
+    domain = (os.environ.get("RAILWAY_PUBLIC_DOMAIN") or "").strip().rstrip("/")
+    if domain:
+        return f"https://{domain}"
+    url = (os.environ.get("RAILWAY_STATIC_URL") or "").strip().rstrip("/")
+    if url:
+        return url if url.startswith("https://") else f"https://{url}"
+    return ""
+
+
 def _optional(name: str, fallback: str) -> str:
     value = (os.environ.get(name) or "").strip()
     return value or fallback
@@ -66,7 +82,12 @@ APP_ENV = _optional("APP_ENV", "development")
 PORT = _int("PORT", 8000)
 MEDIA_PORT = _int("MEDIA_PORT", 8001)
 
-PUBLIC_BASE_URL = _required("PUBLIC_BASE_URL", "Twilio から届く公開 URL。署名検証の入力になる")
+PUBLIC_BASE_URL = (os.environ.get("PUBLIC_BASE_URL") or "").strip() or _railway_https_origin()
+if not PUBLIC_BASE_URL:
+    _problems.append(
+        "PUBLIC_BASE_URL が設定されていません — Twilio から届く公開 URL。"
+        "Railway なら Generate Domain 後に RAILWAY_PUBLIC_DOMAIN から補完される"
+    )
 PUBLIC_WSS_URL = _optional("PUBLIC_WSS_URL", PUBLIC_BASE_URL.replace("https://", "wss://"))
 
 DATABASE_URL = _required("DATABASE_URL", "アプリ用。RLS が効くロールで接続する")
@@ -183,8 +204,12 @@ if _problems:
         "",
     ]
     # 一覧は stderr に直接出す。例外の message に入れるとスタックトレースに埋もれる
+    # ただし Railway などはトレースだけを切り出して「上のログ」が見えなくなるので、
+    # 問題文も例外メッセージに含める
     print("\n".join(lines), file=sys.stderr)
-    raise RuntimeError(f"設定に {len(_problems)} 件の問題があります（詳細は上のログ）")
+    raise RuntimeError(
+        f"設定に {len(_problems)} 件の問題があります: " + " / ".join(_problems)
+    )
 
 
 @dataclass(frozen=True)
