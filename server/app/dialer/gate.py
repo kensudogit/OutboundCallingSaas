@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 import asyncpg
 
-from ..config import DIALING_ENABLED, RECENT_CALL_WINDOW_SECONDS
+from ..config import DIALING_ENABLED, RECENT_CALL_WINDOW_SECONDS, TWILIO_CONFIGURED
 from ..models import CallingWindow, Contact
 
 
@@ -31,6 +31,7 @@ class BlockReason(StrEnum):
     急増したときはリストの質・時間帯設定・DNC の積み上がりのどれかが動いている。
     """
 
+    TELEPHONY_UNCONFIGURED = "telephony_unconfigured"
     DIALING_DISABLED = "dialing_disabled"
     DNC = "dnc"
     OUTSIDE_HOURS = "outside_hours"
@@ -43,6 +44,7 @@ class BlockReason(StrEnum):
 
 
 _MESSAGES: dict[BlockReason, str] = {
+    BlockReason.TELEPHONY_UNCONFIGURED: "電話基盤（Twilio）が未設定のため発信できません",
     BlockReason.DIALING_DISABLED: "現在発信を停止しています",
     BlockReason.DNC: "架電拒否の登録があります",
     BlockReason.OUTSIDE_HOURS: "架電可能時間外です",
@@ -140,7 +142,12 @@ async def can_call(
     """
     now = now or datetime.now(ZoneInfo(window.timezone))
 
-    # 0. 全体停止フラグ。障害時にアプリを巻き戻さず発信だけ止める
+    # 0a. 電話基盤が未設定。DIALING_ENABLED より先に見る——「運用判断で止めた」と
+    #    「そもそも発信経路が無い」は原因も対処も違い、監査ログでも区別したい
+    if not TWILIO_CONFIGURED:
+        return CallDecision.deny(BlockReason.TELEPHONY_UNCONFIGURED)
+
+    # 0b. 全体停止フラグ。障害時にアプリを巻き戻さず発信だけ止める
     if not DIALING_ENABLED:
         return CallDecision.deny(BlockReason.DIALING_DISABLED)
 

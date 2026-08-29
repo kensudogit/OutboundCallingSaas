@@ -18,7 +18,7 @@ import asyncio
 import base64
 
 from .. import storage
-from ..config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
+from ..config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_CONFIGURED
 from ..db.engine import admin_tx, close_pool, init_pool
 from ..logger import logger
 
@@ -77,6 +77,12 @@ async def _purge_from_provider(recording_sid: str) -> None:
 
 async def copy_pending(*, limit: int = BATCH_SIZE, purge: bool = True) -> dict[str, int]:
     """未コピーの録音を自社ストレージへ移す。"""
+    if not TWILIO_CONFIGURED:
+        # 認証情報が無いと取得も削除も 401 になる。空振りの再試行で
+        # failed だけが積み上がると、本物の失敗が埋もれる
+        logger.warn("Twilio が未設定のため録音のコピーをスキップします")
+        return {"copied": 0, "purged": 0, "failed": 0}
+
     if not storage.is_configured():
         logger.warn("録音ストレージが未設定のためコピーをスキップします")
         return {"copied": 0, "purged": 0, "failed": 0}
@@ -167,6 +173,9 @@ async def purge_orphans(*, limit: int = BATCH_SIZE) -> int:
 
     copy_pending の purge が失敗したものを拾い直す経路。
     """
+    if not TWILIO_CONFIGURED:
+        return 0
+
     async with admin_tx() as conn:
         rows = await conn.fetch(
             """

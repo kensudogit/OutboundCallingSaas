@@ -95,6 +95,18 @@ def test_署名キーが違うと落ちる():
     )
 
 
+# ★ Twilio 未設定でも起動できる（縮退モード）ので、空の鍵で検証が「成功」しない
+#   ことを明示的に確かめる。空鍵の HMAC は誰でも計算できるため、ここが通ると
+#   認証情報が無い環境で誰でも Webhook を偽造できる
+def test_Auth_Tokenが空なら正しい署名でも通らない():
+    from app.config import public_url
+
+    forged = compute(public_url(PATH), PARAMS, "")
+    assert not is_valid(
+        path_with_query=PATH, params=PARAMS, signature_header=forged, auth_token=""
+    )
+
+
 def test_長さの違う署名でも例外にならない():
     assert not is_valid(
         path_with_query=PATH, params=PARAMS, signature_header="short", auth_token=TOKEN

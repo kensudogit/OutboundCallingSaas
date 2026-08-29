@@ -150,6 +150,9 @@ export function blockedMessage(error: ApiError): string {
       return 'この相手は架電対象外になっています。';
     case 'dialing_disabled':
       return '現在システム全体で発信を停止しています。';
+    case 'telephony_unconfigured':
+      // 担当者が待っても直らない。管理者の作業が要ることを明示する
+      return '電話基盤が未設定のため発信できません。管理者に連絡してください。';
     case 'provider_unavailable':
       return (detail as unknown as { uncertain?: boolean })?.uncertain
         ? '発信できたか確認中です。二重にかけないよう、しばらく待ってから履歴をご確認ください。'

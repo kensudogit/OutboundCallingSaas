@@ -20,9 +20,12 @@ x-server-env: &server-env
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL を設定してください}
   PUBLIC_WSS_URL: ${PUBLIC_WSS_URL:?PUBLIC_WSS_URL を設定してください}
   JWT_SECRET: ${JWT_SECRET:?openssl rand -hex 32}
-  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:?}
-  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:?}
-  TWILIO_CALLER_ID: ${TWILIO_CALLER_ID:?}
+  # ★ 3 つとも空にすると電話機能を無効にして起動する（契約前の疎通確認用）。
+  #   1 つだけ空だとアプリの起動時検証で落ちる。ここでは弾かず、
+  #   「全部空」と「一部だけ空」の区別は config.py に一本化する
+  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+  TWILIO_CALLER_ID: ${TWILIO_CALLER_ID:-}
   CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
   ASR_PROVIDER: ${ASR_PROVIDER:-null}
   ASR_API_KEY: ${ASR_API_KEY:-}

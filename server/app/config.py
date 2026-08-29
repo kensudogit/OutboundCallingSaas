@@ -82,12 +82,8 @@ APP_ENV = _optional("APP_ENV", "development")
 PORT = _int("PORT", 8000)
 MEDIA_PORT = _int("MEDIA_PORT", 8001)
 
+# 必須かどうかは Twilio を使うかで決まるので、判定は下の検証セクションで行う
 PUBLIC_BASE_URL = (os.environ.get("PUBLIC_BASE_URL") or "").strip() or _railway_https_origin()
-if not PUBLIC_BASE_URL:
-    _problems.append(
-        "PUBLIC_BASE_URL が設定されていません — Twilio から届く公開 URL。"
-        "Railway なら Generate Domain 後に RAILWAY_PUBLIC_DOMAIN から補完される"
-    )
 PUBLIC_WSS_URL = _optional("PUBLIC_WSS_URL", PUBLIC_BASE_URL.replace("https://", "wss://"))
 
 DATABASE_URL = _required("DATABASE_URL", "アプリ用。RLS が効くロールで接続する")
@@ -97,9 +93,43 @@ REDIS_URL = _optional("REDIS_URL", "redis://localhost:6381/0")
 JWT_SECRET = _required("JWT_SECRET", "openssl rand -hex 32")
 JWT_TTL_MINUTES = _int("JWT_TTL_MINUTES", 120)
 
-TWILIO_ACCOUNT_SID = _required("TWILIO_ACCOUNT_SID", "Console のダッシュボード。AC で始まる")
-TWILIO_AUTH_TOKEN = _required("TWILIO_AUTH_TOKEN", "★ 署名検証に使う。API Key Secret とは別物")
-TWILIO_CALLER_ID = _required("TWILIO_CALLER_ID", "購入済みまたは検証済みの発信者番号（E.164）")
+# ★ この 3 つが揃って初めて「電話がかけられる」状態になる。揃っていなければ
+#   起動は通し、電話まわりだけを閉じる（TWILIO_CONFIGURED = False）。
+#   Twilio の契約前でも DB・認証・画面の疎通を先に確認できるようにするため。
+#
+# ★ ただし「1 個だけ入っている」は事故なので起動を止める。特に AUTH_TOKEN だけ
+#   空だと、署名検証が空鍵の HMAC になり、誰でも Webhook を偽造できてしまう。
+#   全部空（未契約）と、一部だけ空（設定ミス）は、区別して扱う。
+TWILIO_ACCOUNT_SID = _optional("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = _optional("TWILIO_AUTH_TOKEN", "")
+TWILIO_CALLER_ID = _optional("TWILIO_CALLER_ID", "")
+
+_TWILIO_CORE_HINTS = {
+    "TWILIO_ACCOUNT_SID": "Console のダッシュボード。AC で始まる",
+    "TWILIO_AUTH_TOKEN": "★ 署名検証に使う。API Key Secret とは別物",
+    "TWILIO_CALLER_ID": "購入済みまたは検証済みの発信者番号（E.164）",
+}
+_twilio_missing = [
+    name
+    for name, value in (
+        ("TWILIO_ACCOUNT_SID", TWILIO_ACCOUNT_SID),
+        ("TWILIO_AUTH_TOKEN", TWILIO_AUTH_TOKEN),
+        ("TWILIO_CALLER_ID", TWILIO_CALLER_ID),
+    )
+    if not value
+]
+TWILIO_CONFIGURED = not _twilio_missing
+
+if _twilio_missing and len(_twilio_missing) < len(_TWILIO_CORE_HINTS):
+    _problems.extend(
+        f"{name} が設定されていません — {_TWILIO_CORE_HINTS[name]}"
+        for name in _twilio_missing
+    )
+    _problems.append(
+        "Twilio の設定が中途半端です。3 つ全部を設定するか、3 つ全部を空にして"
+        "（電話機能を無効にして）ください"
+    )
+
 TWILIO_API_KEY_SID = _optional("TWILIO_API_KEY_SID", "")
 TWILIO_API_KEY_SECRET = _optional("TWILIO_API_KEY_SECRET", "")
 TWILIO_TWIML_APP_SID = _optional("TWILIO_TWIML_APP_SID", "")
@@ -137,6 +167,14 @@ RECORDING_RETENTION_DAYS = _int("RECORDING_RETENTION_DAYS", 365)
 CORS_ORIGIN = _optional("CORS_ORIGIN", "http://localhost:3000")
 
 # ---------------------------------------------------------------- 値の検証
+
+if not PUBLIC_BASE_URL and TWILIO_CONFIGURED:
+    # Twilio を使わないなら公開 URL は要らない。使うなら、これが無いと
+    # コールバック先を組み立てられず、署名検証の対象 URL も決まらない
+    _problems.append(
+        "PUBLIC_BASE_URL が設定されていません — Twilio から届く公開 URL。"
+        "Railway なら Generate Domain 後に RAILWAY_PUBLIC_DOMAIN から補完される"
+    )
 
 if PUBLIC_BASE_URL:
     if not PUBLIC_BASE_URL.startswith("https://") and APP_ENV != "development":
@@ -209,6 +247,32 @@ if _problems:
     print("\n".join(lines), file=sys.stderr)
     raise RuntimeError(
         f"設定に {len(_problems)} 件の問題があります: " + " / ".join(_problems)
+    )
+
+if not TWILIO_CONFIGURED:
+    # ★ 黙って縮退しない。「デプロイは成功したのに電話がかからない」を
+    #   障害として調べ始める前に、ログの先頭で理由が分かるようにする
+    print(
+        "\n".join(
+            [
+                "",
+                "=" * 74,
+                " 電話機能は無効で起動します（Twilio 未設定）",
+                "=" * 74,
+                "",
+                "  未設定: TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_CALLER_ID",
+                "",
+                "  この状態での挙動:",
+                "    - 発信は関門で telephony_unconfigured として拒否されます",
+                "    - /voice/* の Webhook は 503 を返します（空鍵で署名検証はしません）",
+                "    - DB・認証・画面・統計はそのまま使えます",
+                "",
+                "  3 つを設定して再起動すると、自動的に通常動作へ戻ります。",
+                "=" * 74,
+                "",
+            ]
+        ),
+        file=sys.stderr,
     )
 
 

@@ -212,6 +212,30 @@ async def test_発信停止フラグが効く(monkeypatch):
     assert decision.reason is BlockReason.DIALING_DISABLED
 
 
+async def test_Twilio未設定なら発信できない(monkeypatch):
+    """認証情報が無い状態で起動したとき、発信経路が開いたままにならないこと。
+
+    未設定でも起動を許す縮退モードがあるので、関門側で塞げていないと
+    「起動はしたが Twilio に空の SID で発信を試みる」経路が残る。
+    """
+    monkeypatch.setattr("app.dialer.gate.TWILIO_CONFIGURED", False)
+    decision = await can_call(
+        FakeConn(), contact=CONTACT, agent_id="a1", window=WINDOW, now=BUSINESS_HOURS
+    )
+    assert not decision.allowed
+    assert decision.reason is BlockReason.TELEPHONY_UNCONFIGURED
+
+
+async def test_Twilio未設定は発信停止フラグと区別される(monkeypatch):
+    """原因が違えば対処も違う。監査ログで一緒くたにしない。"""
+    monkeypatch.setattr("app.dialer.gate.TWILIO_CONFIGURED", False)
+    monkeypatch.setattr("app.dialer.gate.DIALING_ENABLED", False)
+    decision = await can_call(
+        FakeConn(), contact=CONTACT, agent_id="a1", window=WINDOW, now=BUSINESS_HOURS
+    )
+    assert decision.reason is BlockReason.TELEPHONY_UNCONFIGURED
+
+
 # ---------------------------------------------------------------- 時間帯の計算
 
 

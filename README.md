@@ -407,6 +407,22 @@ railway up -s OutboundCallingSaas
 （初回デプロイでは URL がまだ無い、という鶏卵を避けるため）。ただし
 **Twilio Console に登録する URL とは 1 文字も違ってはいけない**。
 
+#### Twilio がまだ無い状態でデプロイする
+
+`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_CALLER_ID` を
+**3 つとも空**にすると、電話機能だけを無効にして起動する。契約前や、
+まず DB・認証・画面の疎通だけ確認したいときに使う。
+
+- 発信は関門で `telephony_unconfigured` として拒否される
+- `/voice/*` の Webhook は 503 を返す（空の Auth Token で署名検証はしない）
+- 起動ログの先頭に「電話機能は無効で起動します」と出る
+
+3 つを設定して再デプロイすれば、自動的に通常動作へ戻る。
+
+**1 つだけ空にした状態では起動しない。** 特に `TWILIO_AUTH_TOKEN` だけが
+空だと署名検証が空鍵の HMAC になり、誰でも Webhook を偽造できる。
+「全部空（まだ使わない）」と「一部だけ空（設定ミス）」は別物として扱う。
+
 media サービスには `PORT` と `MEDIA_PORT` を**同じ値**（例 `8080`）で入れる。
 `entrypoint media` は `MEDIA_PORT` を見て bind するので、`PORT` だけ入れると
 Railway が待つポートと bind するポートがずれ、ヘルスチェックが通らない。

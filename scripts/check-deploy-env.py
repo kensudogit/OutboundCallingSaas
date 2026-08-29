@@ -35,8 +35,31 @@ FROM_FLY_TOML = {"APP_ENV", "PORT", "MEDIA_PORT", "NODE_ENV"}
 # Postgres をアタッチすると Fly が自動で入れる
 AUTO_BY_PLATFORM = {"DATABASE_URL"}
 
+
+def _telephony_hints() -> dict[str, str]:
+    """電話機能に必要な 3 つを config.py の _TWILIO_CORE_HINTS から読む。
+
+    ★ この 3 つは _required ではない（全部空なら電話機能を無効にして起動する）
+      ので required_from_config() には出てこない。だからといって一覧から
+      黙って消すと、「デプロイは通ったのに発信できない」を自力で調べることに
+      なる。必須と横並びで出し、ここでも二重管理はしない。
+    """
+    block = re.search(
+        r"_TWILIO_CORE_HINTS\s*=\s*\{(.*?)\n\}", CONFIG.read_text(encoding="utf-8"), re.S
+    )
+    if not block:
+        return {}
+    return dict(re.findall(r'"(\w+)"\s*:\s*"([^"]*)"', block.group(1)))
+
+
+TELEPHONY = {
+    name: f"{hint}【3 つセット。全部空なら電話機能を無効にして起動／1 つだけ空だと起動しない】"
+    for name, hint in _telephony_hints().items()
+}
+
 # 必須ではないが、無いと機能が止まるもの
 IMPORTANT_OPTIONAL = {
+    **TELEPHONY,
     "DATABASE_MIGRATOR_URL": (
         "Alembic が使う。未設定だと migrate が落ちる。BYPASSRLS を持つ migrator ロール"
     ),
@@ -46,18 +69,25 @@ IMPORTANT_OPTIONAL = {
     #   PaaS が待つポート（PORT）と揃えないとヘルスチェックが通らず、
     #   「Deploying のまま進まない」になる
     "MEDIA_PORT": "media が bind するポート。PORT と同じ値にする（揃えないとヘルスチェックが通らない）",
+    # ★ Fly は fly.toml の [env] で入るが、Railway は入れてくれない。
+    #   未設定だと development 扱いになり、assert_rls_enforced() が
+    #   例外ではなく警告で済ませる。テナント分離が無いまま本番が動く
+    "APP_ENV": (
+        "Railway では自動で入らない。未設定だと development 扱いになり、"
+        "RLS のガードが警告だけになる（分離されないまま本番が動く）"
+    ),
 }
 
 APPS = {
     "api": {
         "config": "fly.toml",
         "note": "API + 定期ジョブ",
-        "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL"],
+        "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL", *TELEPHONY],
     },
     "media": {
         "config": "fly.media.toml",
         "note": "音声ワーカー。署名検証と DB 記録を行うので同じ値が要る",
-        "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL"],
+        "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL", *TELEPHONY],
     },
     "web": {
         "config": "web/fly.toml",
@@ -75,17 +105,22 @@ RAILWAY_SERVICES = {
     "api": {
         "service": "OutboundCallingSaas",
         "note": "API。railway.toml を Config as Code に指定する",
-        "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL"],
+        "extra": [
+            "APP_ENV", "DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL", *TELEPHONY
+        ],
     },
     "media": {
         "service": "OutboundCallingSaas-media",
         "note": "音声ワーカー。railway.media.toml。値は api と同一にする",
-        "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL", "MEDIA_PORT"],
+        "extra": [
+            "APP_ENV", "DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL",
+            "MEDIA_PORT", *TELEPHONY,
+        ],
     },
     "jobs": {
         "service": "OutboundCallingSaas-jobs",
         "note": "定期ジョブ。railway.jobs.toml。ドメインは生成しない",
-        "extra": ["DATABASE_MIGRATOR_URL", "REDIS_URL"],
+        "extra": ["APP_ENV", "DATABASE_MIGRATOR_URL", "REDIS_URL", *TELEPHONY],
     },
 }
 
@@ -96,6 +131,7 @@ RAILWAY_AUTO = {"RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL", "PORT"}
 #   そのまま使うと RLS が素通りし、起動時のガード（assert_rls_enforced）で
 #   production は落ちる。db/bootstrap-roles.sql で作ったロールに向け直す。
 RAILWAY_PLACEHOLDERS = {
+    "APP_ENV": "production",
     "JWT_SECRET": "$(openssl rand -hex 32)",
     "TWILIO_ACCOUNT_SID": "AC********************************",
     "TWILIO_AUTH_TOKEN": "********************************",

@@ -146,6 +146,7 @@ export const BLOCK_REASON_LABELS: Record<string, string> = {
   invalid_number: '番号の形式が不正',
   contact_inactive: '対象外の連絡先',
   dialing_disabled: '発信を全体停止中',
+  telephony_unconfigured: '電話基盤が未設定',
 };
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {

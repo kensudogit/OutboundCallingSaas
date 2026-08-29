@@ -87,6 +87,40 @@ def test_クエリを変えると403(client):
     assert client.post(other, data=FORM, headers=headers).status_code == 403
 
 
+# ------------------------------------------------------------ Twilio 未設定
+
+# ★ 縮退モード（Twilio 未設定でも起動する）で、Webhook の入口が
+#   「空の Auth Token で検証する」状態にならないことを通しで確認する
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/voice/outbound?call_id=00000000-0000-4000-8000-000000000001",
+        "/voice/status?call_id=00000000-0000-4000-8000-000000000001",
+        "/voice/recording?call_id=00000000-0000-4000-8000-000000000001",
+    ],
+)
+def test_Twilio未設定なら正しい署名でも503(client, monkeypatch, path):
+    monkeypatch.setattr("app.telephony.signature.TWILIO_CONFIGURED", False)
+    res = client.post(path, data=FORM, headers=signed_headers(path, FORM))
+    assert res.status_code == 503
+
+
+def test_Twilio未設定ならDBに触らない(client, monkeypatch):
+    """403 と同様、検証を通る前に副作用を起こさない。"""
+    touched = []
+
+    async def spy(sid: str):
+        touched.append(sid)
+        return None
+
+    monkeypatch.setattr("app.telephony.signature.TWILIO_CONFIGURED", False)
+    monkeypatch.setattr("app.telephony.routes._tenant_conn_for_call", spy)
+
+    path = "/voice/status?call_id=00000000-0000-4000-8000-000000000001"
+    client.post(path, data=FORM, headers=signed_headers(path, FORM))
+    assert touched == []
+
+
 # ---------------------------------------------------------------- 署名あり
 
 

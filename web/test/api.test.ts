@@ -113,6 +113,7 @@ describe('関門で止まったときの案内', () => {
     ['invalid_number', '管理者に連絡'],
     ['contact_inactive', '架電対象外'],
     ['dialing_disabled', 'システム全体で発信を停止'],
+    ['telephony_unconfigured', '管理者に連絡'],
   ])('%s は具体的な案内になる', (reason, expected) => {
     expect(blockedMessage(blocked(reason))).toContain(expected);
   });
