@@ -42,6 +42,10 @@ IMPORTANT_OPTIONAL = {
     ),
     "PUBLIC_WSS_URL": "未設定だと PUBLIC_BASE_URL から推測される。media アプリを指すべき",
     "REDIS_URL": "未設定だと通話中の文字起こしが画面に出ない（通話自体は成立する）",
+    # ★ media サービスだけの話。entrypoint の media は MEDIA_PORT を見て bind するので、
+    #   PaaS が待つポート（PORT）と揃えないとヘルスチェックが通らず、
+    #   「Deploying のまま進まない」になる
+    "MEDIA_PORT": "media が bind するポート。PORT と同じ値にする（揃えないとヘルスチェックが通らない）",
 }
 
 APPS = {
