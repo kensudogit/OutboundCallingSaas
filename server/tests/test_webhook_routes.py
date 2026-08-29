@@ -42,6 +42,25 @@ def signed_headers(path: str, form: dict[str, str]) -> dict[str, str]:
     return {"X-Twilio-Signature": compute(public_url(path), form, TOKEN)}
 
 
+def test_ルートはブラウザ向けにHTMLを返す(client):
+    """公開 URL を開いたときに FastAPI 既定の 404 JSON を出さない。"""
+    res = client.get("/", headers={"Accept": "text/html"})
+    assert res.status_code == 200
+    assert "text/html" in res.headers["content-type"]
+    assert "OutboundCallingSaas API" in res.text
+    assert "/healthz" in res.text
+
+
+def test_ルートはJSONでも同じ状態を返す(client):
+    res = client.get("/", headers={"Accept": "application/json"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["service"] == "api"
+    assert body["ok"] is True
+    assert body["healthz"] == "/healthz"
+    assert body["telephony"] in ("configured", "disabled")
+
+
 # ---------------------------------------------------------------- 署名なし
 
 # ★ 最も重要な検証。署名検証を書き忘れたルートがあると、誰でも TwiML を

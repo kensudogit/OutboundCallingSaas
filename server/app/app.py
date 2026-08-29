@@ -15,10 +15,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from .api import admin, agent_ws, auth, calls, queue, stats, voice_token
-from .config import CORS_ORIGIN
+from .config import CORS_ORIGIN, TWILIO_CONFIGURED
 from .db.engine import assert_rls_enforced, close_pool, init_pool, pool
 from .logger import logger
 from .telephony import routes as telephony_routes
@@ -48,6 +48,41 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.get("/")
+    async def root(request: Request):
+        """ブラウザで公開 URL を開いたときに 404 JSON を出さない。
+
+        このサービスは API であって画面ではない。ルート未定義のままだと
+        FastAPI 既定の {"detail":"Not Found"} になり、「デプロイ失敗」に見える。
+        """
+        telephony = "configured" if TWILIO_CONFIGURED else "disabled"
+        body = {
+            "service": "api",
+            "ok": True,
+            "telephony": telephony,
+            "healthz": "/healthz",
+            "docs": "/docs",
+        }
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            status = "有効" if TWILIO_CONFIGURED else "無効（Twilio 未設定）"
+            html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>OutboundCallingSaas API</title></head>
+<body>
+  <h1>OutboundCallingSaas API</h1>
+  <p>ここは API です。画面（ログイン・発信）は Next.js のフロントサービスです。</p>
+  <ul>
+    <li>死活確認: <a href="/healthz">/healthz</a></li>
+    <li>API 仕様: <a href="/docs">/docs</a></li>
+    <li>電話機能: {status}</li>
+  </ul>
+</body>
+</html>
+"""
+            return HTMLResponse(html)
+        return body
 
     @app.get("/healthz")
     async def healthz():
