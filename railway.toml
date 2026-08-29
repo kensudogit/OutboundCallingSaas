@@ -1,0 +1,39 @@
+# ============================================================================
+# API サービスの設定（Railway の Config as Code）。
+#
+# ★ json ではなく toml を使う。この設定は「なぜそう書いたか」が本体なので、
+#   コメントを書けない形式では意味が半分になる。
+#
+# ★ media / jobs は別サービスにする（原則 3）。それぞれ railway.media.toml /
+#   railway.jobs.toml を、サービス設定 → Config as Code のパスに指定する。
+# ============================================================================
+
+[build]
+# ★ builder を明示するのが要点。書かないと Railway が毎回ビルダを推測し、
+#   同じコミットなのに DOCKERFILE で通ったり RAILPACK に落ちたりする。
+#   2026-08-29 のデプロイは実際に両者が交互になっていた。
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# ★ マイグレーションは preDeployCommand で 1 回だけ流す。コンテナ起動時に
+#   流すと、レプリカが同時に上がったときに並行実行になる。
+#   DATABASE_MIGRATOR_URL（BYPASSRLS を持つ migrator ロール）が要る。
+preDeployCommand = ["python -m alembic upgrade head"]
+
+# ★ 入れないと、DB に繋がらないコンテナでも Active 扱いでトラフィックが入る。
+#   /healthz は「プロセスが生きている」ではなく DB の select 1 で判定する。
+healthcheckPath = "/healthz"
+healthcheckTimeout = 300
+
+# ★ startCommand は書かない。イメージの ENTRYPOINT(entrypoint) + CMD(api) を
+#   そのまま使う。ここに uvicorn を直書きすると entrypoint の exec が外れ、
+#   SIGTERM がアプリに届かなくなる（デプロイのたびに通話が切れる）。
+
+# ★ 既定の 10 から 3 に下げてある。設定不足で落ちるとき 10 回粘られると、
+#   「延々デプロイし続けている」ようにしか見えない。3 回で Crashed にして
+#   ログを読ませる。
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+numReplicas = 1

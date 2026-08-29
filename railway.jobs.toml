@@ -1,0 +1,23 @@
+# ============================================================================
+# 定期ジョブ（予約の解放・録音の削除・集計）のサービス設定。
+# サービス設定 → Config as Code に railway.jobs.toml を指定する。
+#
+# ★ これを動かさないと、担当者のブラウザが落ちるたびに予約が残り、
+#   コールリストが少しずつ枯れる。録音も保存期間を過ぎて消えない。
+#
+# ★ healthcheckPath を付けない。HTTP を持たないので、付けると永久に
+#   ヘルスチェック待ちになり「Deploying のまま」になる。
+#   同じ理由でこのサービスにはドメインを生成しないこと。
+# ============================================================================
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "entrypoint jobs"
+
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+numReplicas = 1

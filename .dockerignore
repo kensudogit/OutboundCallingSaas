@@ -37,6 +37,6 @@ README.md
 # デプロイ設定。イメージには要らない
 fly.toml
 fly.media.toml
-railway.json
-railway.media.json
-railway.jobs.json
+railway.toml
+railway.media.toml
+railway.jobs.toml

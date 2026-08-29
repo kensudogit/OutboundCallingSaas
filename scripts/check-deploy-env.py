@@ -70,17 +70,17 @@ APPS = {
 RAILWAY_SERVICES = {
     "api": {
         "service": "OutboundCallingSaas",
-        "note": "API。railway.json を Config as Code に指定する",
+        "note": "API。railway.toml を Config as Code に指定する",
         "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL"],
     },
     "media": {
         "service": "OutboundCallingSaas-media",
-        "note": "音声ワーカー。railway.media.json。値は api と同一にする",
+        "note": "音声ワーカー。railway.media.toml。値は api と同一にする",
         "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL", "MEDIA_PORT"],
     },
     "jobs": {
         "service": "OutboundCallingSaas-jobs",
-        "note": "定期ジョブ。railway.jobs.json。ドメインは生成しない",
+        "note": "定期ジョブ。railway.jobs.toml。ドメインは生成しない",
         "extra": ["DATABASE_MIGRATOR_URL", "REDIS_URL"],
     },
 }

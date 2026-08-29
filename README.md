@@ -364,12 +364,12 @@ PUBLIC_BASE_URL=https://xxxx.trycloudflare.com PUBLIC_WSS_URL=wss://xxxx.tryclou
 
 | サービス | 設定ファイル | プロセス | ドメイン |
 | --- | --- | --- | --- |
-| `OutboundCallingSaas` | `railway.json` | api | 生成する |
-| `OutboundCallingSaas-media` | `railway.media.json` | media | 生成する（Twilio が `wss://` で繋ぐ） |
-| `OutboundCallingSaas-jobs` | `railway.jobs.json` | jobs | **生成しない**（HTTP を持たない） |
+| `OutboundCallingSaas` | `railway.toml` | api | 生成する |
+| `OutboundCallingSaas-media` | `railway.media.toml` | media | 生成する（Twilio が `wss://` で繋ぐ） |
+| `OutboundCallingSaas-jobs` | `railway.jobs.toml` | jobs | **生成しない**（HTTP を持たない） |
 | `OutboundCallingSaas-web` | — | Next.js | 生成する |
 
-**`builder` を必ず明示する。** `railway.json` が無いと Railway は毎回ビルダを
+**`builder` を必ず明示する。** `railway.toml` が無いと Railway は毎回ビルダを
 推測し、同じコミットでも `DOCKERFILE` になったり `RAILPACK` になったりする。
 片方だけ失敗するので「直したはずなのにまた落ちる」に見える。
 
@@ -468,7 +468,7 @@ API と media ワーカーの両方で検査する。片方だけ守っても、
 | entrypoint が `no such file or directory` | 改行が CRLF。`.gitattributes` で LF に固定してある |
 | 設定に N 件の問題があります で起動しない | 必須の環境変数が未設定。**意図した挙動**（「設定が undefined のまま動く」のが最悪なので起動時に落とす）。`scripts/check-deploy-env.py` で不足と設定コマンドが出る |
 | 他テナントのデータが見える（本番だけ） | マネージド DB の既定ロールが superuser / BYPASSRLS。`bootstrap-roles.sql` 未実行 |
-| Railway で同じコミットのビルドが通ったり落ちたりする | `railway.json` が無く、ビルダが `DOCKERFILE` と `RAILPACK` の間で揺れていた |
+| Railway で同じコミットのビルドが通ったり落ちたりする | `railway.toml` が無く、ビルダが `DOCKERFILE` と `RAILPACK` の間で揺れていた |
 | Railway のデプロイが Deploying のまま進まない | ほぼ基盤側。`queuedReason` が `upstream GCP issues` なら待つ。**押し直すと最後尾に並び直すので余計に進まない** |
 | Railway の jobs サービスが Active にならない | HTTP を持たないサービスに `healthcheckPath` を付けていた |
 

@@ -1,0 +1,33 @@
+# ============================================================================
+# 音声ワーカー（Media Streams の WebSocket）のサービス設定。
+# サービス設定 → Config as Code に railway.media.toml を指定する。
+#
+# ★ API と同じサービスに載せてはいけない（原則 3）。Media Streams は 1 通話
+#   あたり毎秒 50 メッセージ。同じイベントループに載せると通話が増えるほど
+#   API のレスポンスが落ちる。スケールの軸も別（API は同時ユーザー数、
+#   media は同時通話数）。
+#
+# ★ このサービスの変数に PORT と MEDIA_PORT を同じ値（例 8080）で入れること。
+#   entrypoint の media は MEDIA_PORT を見て bind するので、PORT だけ入れると
+#   Railway が待つポートと bind するポートがずれ、ヘルスチェックが通らない。
+#
+# ★ 秘密情報は api と同一の値にする。特に JWT_SECRET を生成し直すと、
+#   api が発行したトークンを media 側で検証できなくなる。
+# ============================================================================
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# entrypoint 経由で起動する。Railway が ENTRYPOINT を残す場合は
+# 内側の catch-all（*）が、外す場合は直接 media 分岐が効く。どちらでも通る。
+startCommand = "entrypoint media"
+
+healthcheckPath = "/healthz"
+healthcheckTimeout = 300
+
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+numReplicas = 1
