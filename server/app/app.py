@@ -69,15 +69,119 @@ def create_app() -> FastAPI:
             status = "有効" if TWILIO_CONFIGURED else "無効（Twilio 未設定）"
             html = f"""<!DOCTYPE html>
 <html lang="ja">
-<head><meta charset="utf-8"><title>OutboundCallingSaas API</title></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutboundCallingSaas API</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      font-family: Inter, "Noto Sans JP", system-ui, sans-serif;
+      background: #07111f;
+      color: #e7edf6;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(31, 111, 235, .22), transparent 38%),
+        radial-gradient(circle at 80% 80%, rgba(22, 163, 74, .12), transparent 34%),
+        #07111f;
+    }}
+    main {{
+      width: min(680px, 100%);
+      padding: clamp(28px, 6vw, 52px);
+      border: 1px solid rgba(148, 163, 184, .2);
+      border-radius: 24px;
+      background: rgba(15, 27, 46, .86);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, .38);
+      backdrop-filter: blur(18px);
+    }}
+    .eyebrow {{
+      margin: 0 0 12px;
+      color: #60a5fa;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }}
+    h1 {{
+      margin: 0;
+      font-size: clamp(30px, 6vw, 48px);
+      line-height: 1.1;
+      letter-spacing: -.035em;
+    }}
+    .lead {{
+      margin: 18px 0 30px;
+      color: #aebbd0;
+      line-height: 1.8;
+    }}
+    .status {{
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 0;
+    }}
+    .status > div {{
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid rgba(148, 163, 184, .16);
+      border-radius: 14px;
+      background: rgba(4, 12, 24, .55);
+    }}
+    dt {{
+      margin-bottom: 7px;
+      color: #75859d;
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    dd {{
+      margin: 0;
+      overflow-wrap: anywhere;
+      font-size: 14px;
+      font-weight: 700;
+    }}
+    .ok {{ color: #4ade80; }}
+    a {{
+      color: #93c5fd;
+      text-decoration: none;
+    }}
+    a:hover {{ color: #dbeafe; text-decoration: underline; }}
+    @media (max-width: 560px) {{
+      .status {{ grid-template-columns: 1fr; }}
+    }}
+  </style>
+</head>
 <body>
-  <h1>OutboundCallingSaas API</h1>
-  <p>ここは API です。画面（ログイン・発信）は Next.js のフロントサービスです。</p>
-  <ul>
-    <li>死活確認: <a href="/healthz">/healthz</a></li>
-    <li>API 仕様: <a href="/docs">/docs</a></li>
-    <li>電話機能: {status}</li>
-  </ul>
+  <main>
+    <p class="eyebrow">Service status</p>
+    <h1>OutboundCallingSaas API</h1>
+    <p class="lead">
+      API サービスは正常に稼働しています。ログイン・発信画面は
+      Next.js のフロントサービスから利用してください。
+    </p>
+    <dl class="status">
+      <div>
+        <dt>API</dt>
+        <dd class="ok">● 稼働中</dd>
+      </div>
+      <div>
+        <dt>死活確認</dt>
+        <dd><a href="/healthz">/healthz</a></dd>
+      </div>
+      <div>
+        <dt>電話機能</dt>
+        <dd>{status}</dd>
+      </div>
+    </dl>
+    <p class="lead" style="margin-bottom: 0">
+      開発者向け: <a href="/docs">API ドキュメントを開く →</a>
+    </p>
+  </main>
 </body>
 </html>
 """
