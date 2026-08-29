@@ -471,6 +471,7 @@ API と media ワーカーの両方で検査する。片方だけ守っても、
 | Railway で同じコミットのビルドが通ったり落ちたりする | `railway.toml` が無く、ビルダが `DOCKERFILE` と `RAILPACK` の間で揺れていた |
 | Railway のデプロイが Deploying のまま進まない | ほぼ基盤側。`queuedReason` が `upstream GCP issues` なら待つ。**押し直すと最後尾に並び直すので余計に進まない** |
 | Railway の jobs サービスが Active にならない | HTTP を持たないサービスに `healthcheckPath` を付けていた |
+| 変数を設定したのに「N 件の問題があります」で落ちる | 値が**空文字**で登録されている。Railway の画面では「設定済」に見えるが、`_required()` は `.strip()` して空なら未設定として扱う。`railway variables --kv` で `KEY=` になっていないか見る |
 
 ---
 

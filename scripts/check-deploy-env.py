@@ -118,7 +118,17 @@ RAILWAY_PLACEHOLDERS = {
 
 
 def railway_variable_names(service: str) -> set[str] | None:
-    """設定済みの変数名を取る。値は読まない（貼っても漏れないようにする）。"""
+    """★ 値の入っている変数の名前だけを返す。
+
+    ★ 空文字は「未設定」として扱う。config.py の _required() が
+      (os.environ.get(name) or "").strip() で判定しているので、値が空の変数は
+      アプリから見れば無いのと同じ。名前の有無だけで「設定済」と報告すると、
+      「設定したのに『設定されていません』で落ちる」を突きつけられることになり、
+      このスクリプトが止めるはずのループを 1 周増やす。
+
+    ★ 値は判定にしか使わない。出力には長さすら出さない
+      （このスクリプトの出力はそのまま貼れる、を保つため）。
+    """
     # ★ Windows の npm シムは railway.cmd。argv[0] を "railway" のままにすると
     #   CreateProcess が解決できず、常に「取得できませんでした」になる
     exe = shutil.which("railway")
@@ -135,8 +145,11 @@ def railway_variable_names(service: str) -> set[str] | None:
         return None
     names = set()
     for line in result.stdout.splitlines():
-        if "=" in line:
-            names.add(line.split("=", 1)[0].strip())
+        if "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if value.strip():
+            names.add(name.strip())
     return names or None
 
 
@@ -213,7 +226,11 @@ def app_name(config_path: Path) -> str | None:
 
 
 def fly_secrets(app: str) -> set[str] | None:
-    """設定済みの secret 名を取る。値は返らない。"""
+    """設定済みの secret 名を取る。値は返らない。
+
+    ★ Railway 側と違い、空かどうかは判定できない（fly が値を返さない）。
+      fly secrets set は空文字を受け付けないので、実害は無い。
+    """
     exe = shutil.which("fly")
     if not exe:
         return None
