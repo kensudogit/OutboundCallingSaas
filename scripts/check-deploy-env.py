@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """デプロイ前に、足りない環境変数を洗い出して設定コマンドを組み立てる。
 
-    python scripts/check-deploy-env.py                    # 全アプリを確認
-    python scripts/check-deploy-env.py --app my-app       # 1 つだけ
-    python scripts/check-deploy-env.py --print-only       # fly を叩かず一覧だけ
+    python scripts/check-deploy-env.py                        # Fly / 全アプリ
+    python scripts/check-deploy-env.py --app media            # 1 つだけ
+    python scripts/check-deploy-env.py --print-only           # CLI を叩かず一覧だけ
+    python scripts/check-deploy-env.py --platform railway     # Railway を確認
+
+★ 不足を「1 件ずつ」出さない。PaaS では 1 件直すたびに再デプロイなので、
+  6 個足りなければ 6 回デプロイし直すことになる。まとめて 1 コマンドにする。
 
 ★ 必須の一覧は config.py の _required(...) から読む。設定を足したときに
   ここを直し忘れて、デプロイしてから気付くのを避けるため。二重管理しない。
@@ -59,6 +63,135 @@ APPS = {
 }
 
 
+# ---------------------------------------------------------------- Railway
+
+# ★ Railway は「サービス」単位。fly.toml のようなファイルからは名前を引けないので、
+#   リンク済みプロジェクトのサービス名をそのまま使う。
+RAILWAY_SERVICES = {
+    "api": {
+        "service": "OutboundCallingSaas",
+        "note": "API。railway.json を Config as Code に指定する",
+        "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL"],
+    },
+    "media": {
+        "service": "OutboundCallingSaas-media",
+        "note": "音声ワーカー。railway.media.json。値は api と同一にする",
+        "extra": ["DATABASE_MIGRATOR_URL", "PUBLIC_WSS_URL", "REDIS_URL", "MEDIA_PORT"],
+    },
+    "jobs": {
+        "service": "OutboundCallingSaas-jobs",
+        "note": "定期ジョブ。railway.jobs.json。ドメインは生成しない",
+        "extra": ["DATABASE_MIGRATOR_URL", "REDIS_URL"],
+    },
+}
+
+# Railway が自動で入れるもの。config.py はこれらから PUBLIC_BASE_URL を補完する
+RAILWAY_AUTO = {"RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL", "PORT"}
+
+# ★ Railway の Postgres がくれる DATABASE_URL は postgres（superuser）。
+#   そのまま使うと RLS が素通りし、起動時のガード（assert_rls_enforced）で
+#   production は落ちる。db/bootstrap-roles.sql で作ったロールに向け直す。
+RAILWAY_PLACEHOLDERS = {
+    "JWT_SECRET": "$(openssl rand -hex 32)",
+    "TWILIO_ACCOUNT_SID": "AC********************************",
+    "TWILIO_AUTH_TOKEN": "********************************",
+    "TWILIO_CALLER_ID": "+81XXXXXXXXXX",
+    # 未設定でも RAILWAY_PUBLIC_DOMAIN から補完される。明示するならこの形
+    "PUBLIC_BASE_URL": "https://${{RAILWAY_PUBLIC_DOMAIN}}",
+    "PUBLIC_WSS_URL": "wss://<media サービスのドメイン>",
+    "DATABASE_URL": (
+        "postgresql://app_user:<pass>@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}"
+        ":5432/${{Postgres.PGDATABASE}}"
+    ),
+    "DATABASE_MIGRATOR_URL": (
+        "postgresql://migrator:<pass>@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}"
+        ":5432/${{Postgres.PGDATABASE}}"
+    ),
+    "REDIS_URL": "${{Redis.REDIS_URL}}",
+    "MEDIA_PORT": "8080",
+    "PORT": "8080",
+}
+
+
+def railway_variable_names(service: str) -> set[str] | None:
+    """設定済みの変数名を取る。値は読まない（貼っても漏れないようにする）。"""
+    # ★ Windows の npm シムは railway.cmd。argv[0] を "railway" のままにすると
+    #   CreateProcess が解決できず、常に「取得できませんでした」になる
+    exe = shutil.which("railway")
+    if not exe:
+        return None
+    try:
+        result = subprocess.run(
+            [exe, "variables", "--kv", "-s", service],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    names = set()
+    for line in result.stdout.splitlines():
+        if "=" in line:
+            names.add(line.split("=", 1)[0].strip())
+    return names or None
+
+
+def report_railway(key: str, spec: dict, required: dict[str, str], print_only: bool) -> int:
+    service = spec["service"]
+
+    print()
+    print("=" * 74)
+    print(f" {key}: {service} — {spec['note']}")
+    print("=" * 74)
+
+    wanted = {k: v for k, v in required.items() if k not in FROM_FLY_TOML}
+    for extra in spec.get("extra", []):
+        wanted.setdefault(extra, IMPORTANT_OPTIONAL.get(extra, ""))
+
+    existing = None if print_only else railway_variable_names(service)
+
+    if existing is None:
+        if not print_only:
+            print("  ※ railway から取得できませんでした")
+            print("     （未ログイン / railway link 未実行 / サービス名違い）")
+            print("     必要な変数の一覧だけ出します")
+        missing = sorted(wanted)
+    else:
+        missing = sorted(k for k in wanted if k not in existing)
+        for k in sorted(k for k in wanted if k in existing):
+            print(f"  [設定済] {k}")
+        # ★ Railway の DATABASE_URL は自動で入るが、それは superuser の URL。
+        #   「設定済」に見えても RLS のガードで落ちるので、ここで警告する
+        if "DATABASE_URL" in existing:
+            print("  [要確認] DATABASE_URL — Railway の既定値は postgres(superuser)。")
+            print("           そのままだと RLS が効かず、起動時のガードで落ちます。")
+            print("           db/bootstrap-roles.sql を流し、app_user に向け直すこと")
+
+    if not missing:
+        print("  不足なし")
+        return 0
+
+    print()
+    for k in missing:
+        hint = wanted.get(k) or IMPORTANT_OPTIONAL.get(k, "")
+        print(f"  [不足] {k}" + (f" — {hint}" if hint else ""))
+
+    print()
+    print("  設定コマンド（1 回で全部入れる。1 件ずつ入れるとその数だけ再デプロイになる）:")
+    print()
+    print(f"    railway variables -s {service} \\")
+    for i, k in enumerate(missing):
+        tail = " \\" if i < len(missing) - 1 else ""
+        value = SHARED_WITH_API.get(k) if key != "api" else None
+        value = value or RAILWAY_PLACEHOLDERS.get(k, "<値>")
+        print(f'      --set "{k}={value}"{tail}')
+    if key != "api":
+        print()
+        print("    ★ 値は api と同一にすること。特に JWT_SECRET を生成し直すと、")
+        print("      api が発行したトークンをこのサービスで検証できなくなる。")
+    return len(missing)
+
+
 def required_from_config() -> dict[str, str]:
     """config.py の _required(...) を唯一の出所として読む。"""
     text = CONFIG.read_text(encoding="utf-8")
@@ -77,11 +210,12 @@ def app_name(config_path: Path) -> str | None:
 
 def fly_secrets(app: str) -> set[str] | None:
     """設定済みの secret 名を取る。値は返らない。"""
-    if not shutil.which("fly"):
+    exe = shutil.which("fly")
+    if not exe:
         return None
     try:
         result = subprocess.run(
-            ["fly", "secrets", "list", "-a", app, "--json"],
+            [exe, "secrets", "list", "-a", app, "--json"],
             capture_output=True, text=True, timeout=30, check=False,
         )
     except (subprocess.SubprocessError, OSError):
@@ -196,9 +330,12 @@ def report(key: str, spec: dict, required: dict[str, str], print_only: bool) -> 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="デプロイ前の環境変数チェック")
-    parser.add_argument("--app", choices=sorted(APPS), help="1 つだけ確認する")
     parser.add_argument(
-        "--print-only", action="store_true", help="fly を叩かず必要な変数を並べるだけ"
+        "--platform", choices=("fly", "railway"), default="fly", help="確認する PaaS"
+    )
+    parser.add_argument("--app", help="1 つだけ確認する（api / media / jobs / web）")
+    parser.add_argument(
+        "--print-only", action="store_true", help="CLI を叩かず必要な変数を並べるだけ"
     )
     args = parser.parse_args()
 
@@ -207,8 +344,18 @@ def main() -> int:
         print("config.py から必須変数を読めませんでした", file=sys.stderr)
         return 2
 
-    targets = {args.app: APPS[args.app]} if args.app else APPS
-    total = sum(report(k, v, required, args.print_only) for k, v in targets.items())
+    table = APPS if args.platform == "fly" else RAILWAY_SERVICES
+    fn = report if args.platform == "fly" else report_railway
+
+    if args.app and args.app not in table:
+        print(
+            f"--platform {args.platform} で使えるのは: {', '.join(sorted(table))}",
+            file=sys.stderr,
+        )
+        return 2
+
+    targets = {args.app: table[args.app]} if args.app else table
+    total = sum(fn(k, v, required, args.print_only) for k, v in targets.items())
 
     print()
     print("=" * 74)
@@ -217,6 +364,7 @@ def main() -> int:
         print()
         print(" ★ マネージド Postgres を使う場合、先に db/bootstrap-roles.sql を")
         print("   1 回流しておくこと。流さないと RLS が効かず、起動時のガードで止まります。")
+        print("   Railway の Postgres が配る DATABASE_URL は superuser なので必ず該当します。")
     else:
         print(f" {total} 件の設定が不足しています")
         print()

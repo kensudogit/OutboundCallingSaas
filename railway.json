@@ -1,0 +1,45 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+
+  "//": [
+    "API サービス（既定）の設定。Railway の Config as Code。",
+    "",
+    "★ builder を明示するのが要点。書かないと Railway が毎回ビルダを推測し、",
+    "  同じコミットなのに Dockerfile で通ったり RAILPACK に落ちたりする。",
+    "  実際 2026-08-29 のデプロイは DOCKERFILE と RAILPACK が交互になっていた。",
+    "",
+    "★ startCommand は書かない。イメージの ENTRYPOINT(entrypoint) + CMD(api) を",
+    "  そのまま使う。ここに uvicorn を直書きすると entrypoint の exec が外れ、",
+    "  SIGTERM がアプリに届かなくなる（デプロイのたびに通話が切れる）。",
+    "",
+    "★ media / jobs は別サービスにする。1 サービスに載せない（原則 3）。",
+    "  それぞれ railway.media.json / railway.jobs.json を",
+    "  サービス設定の Config as Code のパスに指定する。"
+  ],
+
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+
+  "deploy": {
+    "//": [
+      "★ マイグレーションは preDeployCommand で 1 回だけ流す。",
+      "  コンテナ起動時に流すと、レプリカが同時に上がったときに並行実行になる。",
+      "  DATABASE_MIGRATOR_URL（BYPASSRLS を持つ migrator ロール）が要る。",
+      "",
+      "★ healthcheckPath を入れないと、DB に繋がらないコンテナでも",
+      "  Active 扱いのままトラフィックが入る。/healthz は DB の select 1 で判定する。",
+      "",
+      "★ maxRetries を既定の 10 から 3 に下げてある。設定不足で落ちるとき、",
+      "  10 回粘られると『延々デプロイし続けている』ようにしか見えない。",
+      "  3 回で Crashed にして、ログを読ませる。"
+    ],
+    "preDeployCommand": ["python -m alembic upgrade head"],
+    "healthcheckPath": "/healthz",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3,
+    "numReplicas": 1
+  }
+}
